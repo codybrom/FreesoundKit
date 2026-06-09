@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:FreesoundKit}",
+            "name": "Debug freesound-tester",
+            "target": "freesound-tester",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug freesound-tester"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:FreesoundKit}",
+            "name": "Release freesound-tester",
+            "target": "freesound-tester",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release freesound-tester"
+        }
+    ]
+}
