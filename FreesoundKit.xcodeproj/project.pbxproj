@@ -42,15 +42,28 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		1AAB9E8BB0234048BCEEE226 /* Shared.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Shared.xcconfig; path = Config/Shared.xcconfig; sourceTree = "<group>"; };
 		E64644503448F99596268818 /* FreesoundKit.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = FreesoundKit.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		EE213C6368990BB398DE2A47 /* FreesoundKitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FreesoundKitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F35CDE7BFE6BA8AAFE66FF76 /* FreesoundKitTester */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = FreesoundKitTester; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		2281CD731E6A50E91D8341F5 /* FreesoundKitTester */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Sources/FreesoundKitTester; sourceTree = "<group>"; };
-		AD72B18F523FDA0D191C6D92 /* FreesoundKit */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Sources/FreesoundKit; sourceTree = "<group>"; };
-		F98E55CF87911186A2A1369F /* FreesoundKitTests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Tests/FreesoundKitTests; sourceTree = "<group>"; };
+		2281CD731E6A50E91D8341F5 /* Sources/FreesoundKitTester */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Sources/FreesoundKitTester;
+			sourceTree = "<group>";
+		};
+		AD72B18F523FDA0D191C6D92 /* Sources/FreesoundKit */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Sources/FreesoundKit;
+			sourceTree = "<group>";
+		};
+		F98E55CF87911186A2A1369F /* Tests/FreesoundKitTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Tests/FreesoundKitTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -79,12 +92,22 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		63DE14B1A2BC40819583E5F7 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				1AAB9E8BB0234048BCEEE226 /* Shared.xcconfig */,
+			);
+			name = Config;
+			path = Config;
+			sourceTree = "<group>";
+		};
 		D6C05AAA42B37E71EB7B93CC = {
 			isa = PBXGroup;
 			children = (
-				AD72B18F523FDA0D191C6D92 /* FreesoundKit */,
-				2281CD731E6A50E91D8341F5 /* FreesoundKitTester */,
-				F98E55CF87911186A2A1369F /* FreesoundKitTests */,
+				63DE14B1A2BC40819583E5F7 /* Config */,
+				AD72B18F523FDA0D191C6D92 /* Sources/FreesoundKit */,
+				2281CD731E6A50E91D8341F5 /* Sources/FreesoundKitTester */,
+				F98E55CF87911186A2A1369F /* Tests/FreesoundKitTests */,
 				4C3133F3843A482A82D9BA96 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -105,7 +128,7 @@
 				E35477B7D9D00D7F3E9E35AB /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				2281CD731E6A50E91D8341F5 /* FreesoundKitTester */,
+				2281CD731E6A50E91D8341F5 /* Sources/FreesoundKitTester */,
 			);
 			name = FreesoundKitTester;
 			productName = FreesoundKitTester;
@@ -126,7 +149,7 @@
 				2C4E39D51DED858440F5E6E0 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				F98E55CF87911186A2A1369F /* FreesoundKitTests */,
+				F98E55CF87911186A2A1369F /* Tests/FreesoundKitTests */,
 			);
 			name = FreesoundKitTests;
 			productName = FreesoundKitTests;
@@ -142,7 +165,7 @@
 			buildRules = (
 			);
 			fileSystemSynchronizedGroups = (
-				AD72B18F523FDA0D191C6D92 /* FreesoundKit */,
+				AD72B18F523FDA0D191C6D92 /* Sources/FreesoundKit */,
 			);
 			name = FreesoundKit;
 			productName = FreesoundKit;
@@ -211,9 +234,12 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
-		03E14D60FC8A22659AE13818 /* Debug */ = {
+		03E14D60FC8A22659AE13818 /* Debug configuration for PBXNativeTarget "FreesoundKitTester" */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1AAB9E8BB0234048BCEEE226 /* Shared.xcconfig */;
 			buildSettings = {
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -221,15 +247,18 @@
 				);
 				OTHER_SWIFT_FLAGS = "-parse-as-library";
 				PRODUCT_BUNDLE_IDENTIFIER = com.codybrom.FreesoundKitTester;
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = macosx;
 				SWIFT_VERSION = 6.0;
 			};
 			name = Debug;
 		};
-		19E4D782A4DD43711197B1C0 /* Release */ = {
+		19E4D782A4DD43711197B1C0 /* Release configuration for PBXNativeTarget "FreesoundKit" */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1AAB9E8BB0234048BCEEE226 /* Shared.xcconfig */;
 			buildSettings = {
-				CODE_SIGN_IDENTITY = "";
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEFINES_MODULE = NO;
@@ -238,22 +267,37 @@
 				DYLIB_INSTALL_NAME_BASE = "@rpath";
 				GENERATE_INFOPLIST_FILE = YES;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.codybrom.FreesoundKit;
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "appletvos appletvsimulator iphoneos iphonesimulator macosx watchos watchsimulator xros xrsimulator";
+				SUPPORTS_MACCATALYST = YES;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
 				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2,3,4,6,7";
+				TVOS_DEPLOYMENT_TARGET = 18.6;
 				VERSIONING_SYSTEM = "apple-generic";
+				WATCHOS_DEPLOYMENT_TARGET = 11.6;
+				XROS_DEPLOYMENT_TARGET = 2.6;
 			};
 			name = Release;
 		};
-		57C14EFDAF1318DFA768F14B /* Debug */ = {
+		57C14EFDAF1318DFA768F14B /* Debug configuration for PBXNativeTarget "FreesoundKitTests" */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1AAB9E8BB0234048BCEEE226 /* Shared.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_IDENTITY = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -262,13 +306,15 @@
 					"@loader_path/../Frameworks",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.codybrom.FreesoundKitTests;
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = macosx;
 				SWIFT_VERSION = 6.0;
 			};
 			name = Debug;
 		};
-		7F10DB866F779A37337002B1 /* Release */ = {
+		7F10DB866F779A37337002B1 /* Release configuration for PBXProject "FreesoundKit" */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1AAB9E8BB0234048BCEEE226 /* Shared.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -323,10 +369,14 @@
 			};
 			name = Release;
 		};
-		8C3806A59E99BE61E933778B /* Release */ = {
+		8C3806A59E99BE61E933778B /* Release configuration for PBXNativeTarget "FreesoundKitTests" */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1AAB9E8BB0234048BCEEE226 /* Shared.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_IDENTITY = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -335,15 +385,18 @@
 					"@loader_path/../Frameworks",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.codybrom.FreesoundKitTests;
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = macosx;
 				SWIFT_VERSION = 6.0;
 			};
 			name = Release;
 		};
-		8C962CC50D2795CDE8DB2B00 /* Debug */ = {
+		8C962CC50D2795CDE8DB2B00 /* Debug configuration for PBXNativeTarget "FreesoundKit" */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1AAB9E8BB0234048BCEEE226 /* Shared.xcconfig */;
 			buildSettings = {
-				CODE_SIGN_IDENTITY = "";
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEFINES_MODULE = NO;
@@ -352,21 +405,35 @@
 				DYLIB_INSTALL_NAME_BASE = "@rpath";
 				GENERATE_INFOPLIST_FILE = YES;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.codybrom.FreesoundKit;
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "appletvos appletvsimulator iphoneos iphonesimulator macosx watchos watchsimulator xros xrsimulator";
+				SUPPORTS_MACCATALYST = YES;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = YES;
 				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2,3,4,6,7";
+				TVOS_DEPLOYMENT_TARGET = 18.6;
 				VERSIONING_SYSTEM = "apple-generic";
+				WATCHOS_DEPLOYMENT_TARGET = 11.6;
+				XROS_DEPLOYMENT_TARGET = 2.6;
 			};
 			name = Debug;
 		};
-		B774FF4738DE02060A8E976D /* Release */ = {
+		B774FF4738DE02060A8E976D /* Release configuration for PBXNativeTarget "FreesoundKitTester" */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1AAB9E8BB0234048BCEEE226 /* Shared.xcconfig */;
 			buildSettings = {
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -374,13 +441,15 @@
 				);
 				OTHER_SWIFT_FLAGS = "-parse-as-library";
 				PRODUCT_BUNDLE_IDENTIFIER = com.codybrom.FreesoundKitTester;
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = macosx;
 				SWIFT_VERSION = 6.0;
 			};
 			name = Release;
 		};
-		EA205C8C5C1E7559B13F62E8 /* Debug */ = {
+		EA205C8C5C1E7559B13F62E8 /* Debug configuration for PBXProject "FreesoundKit" */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 1AAB9E8BB0234048BCEEE226 /* Shared.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -448,37 +517,33 @@
 		00EC0ACC0244F37BAE142D0D /* Build configuration list for PBXNativeTarget "FreesoundKit" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				8C962CC50D2795CDE8DB2B00 /* Debug */,
-				19E4D782A4DD43711197B1C0 /* Release */,
+				8C962CC50D2795CDE8DB2B00 /* Debug configuration for PBXNativeTarget "FreesoundKit" */,
+				19E4D782A4DD43711197B1C0 /* Release configuration for PBXNativeTarget "FreesoundKit" */,
 			);
-			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
 		08898E4558CD0598E77933AB /* Build configuration list for PBXNativeTarget "FreesoundKitTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				57C14EFDAF1318DFA768F14B /* Debug */,
-				8C3806A59E99BE61E933778B /* Release */,
+				57C14EFDAF1318DFA768F14B /* Debug configuration for PBXNativeTarget "FreesoundKitTests" */,
+				8C3806A59E99BE61E933778B /* Release configuration for PBXNativeTarget "FreesoundKitTests" */,
 			);
-			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
 		718D3E78312A256CA7B5D023 /* Build configuration list for PBXProject "FreesoundKit" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				EA205C8C5C1E7559B13F62E8 /* Debug */,
-				7F10DB866F779A37337002B1 /* Release */,
+				EA205C8C5C1E7559B13F62E8 /* Debug configuration for PBXProject "FreesoundKit" */,
+				7F10DB866F779A37337002B1 /* Release configuration for PBXProject "FreesoundKit" */,
 			);
-			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
 		922DA9B76B41CE8CFA0C0387 /* Build configuration list for PBXNativeTarget "FreesoundKitTester" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				03E14D60FC8A22659AE13818 /* Debug */,
-				B774FF4738DE02060A8E976D /* Release */,
+				03E14D60FC8A22659AE13818 /* Debug configuration for PBXNativeTarget "FreesoundKitTester" */,
+				B774FF4738DE02060A8E976D /* Release configuration for PBXNativeTarget "FreesoundKitTester" */,
 			);
-			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
