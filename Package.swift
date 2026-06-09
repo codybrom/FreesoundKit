@@ -1,0 +1,41 @@
+// swift-tools-version: 6.3
+// The swift-tools-version declares the minimum version of Swift required to build this package.
+
+import PackageDescription
+
+let package = Package(
+    name: "FreesoundKit",
+    platforms: [
+        .macOS(.v12),
+        .iOS(.v15),
+        .tvOS(.v15),
+        .watchOS(.v8),
+    ],
+    products: [
+        // Products define the executables and libraries a package produces, making them visible to other packages.
+        .library(
+            name: "FreesoundKit",
+            targets: ["FreesoundKit"]
+        ),
+        .executable(
+            name: "freesound-tester",
+            targets: ["FreesoundKitTester"]
+        ),
+    ],
+    targets: [
+        // Targets are the basic building blocks of a package, defining a module or a test suite.
+        // Targets can depend on other targets in this package and products from dependencies.
+        .target(
+            name: "FreesoundKit"
+        ),
+        .executableTarget(
+            name: "FreesoundKitTester",
+            dependencies: ["FreesoundKit"]
+        ),
+        .testTarget(
+            name: "FreesoundKitTests",
+            dependencies: ["FreesoundKit"]
+        ),
+    ],
+    swiftLanguageModes: [.v6]
+)
