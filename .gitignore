@@ -15,5 +15,8 @@ DerivedData/
 .swiftpm/configuration/registries.json
 .swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
 
+# Local developer overrides (Xcode team ID, etc.)
+Config/Local.xcconfig
+
 # Credentials
 .netrc
