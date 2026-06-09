@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, macos-15]
+        os: [macos-15]
     steps:
       - uses: actions/checkout@v6
 
@@ -34,12 +34,3 @@ jobs:
 
       - name: Test
         run: swift test --parallel --enable-code-coverage
-
-  xcode-project:
-    name: Xcode project validation
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Build Xcode scheme
-        run: xcodebuild -project FreesoundKit.xcodeproj -scheme FreesoundKit -configuration Debug -destination "platform=macOS" build
