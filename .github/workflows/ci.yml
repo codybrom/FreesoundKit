@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  swift-package:
+    name: Swift Package (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-15]
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Show Swift version
+        run: swift --version
+
+      - name: Resolve dependencies
+        run: swift package resolve
+
+      - name: Build
+        run: swift build --build-tests
+
+      - name: Test
+        run: swift test --parallel --enable-code-coverage
+
+  xcode-project:
+    name: Xcode project validation
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build Xcode scheme
+        run: xcodebuild -project FreesoundKit.xcodeproj -scheme FreesoundKit -configuration Debug -destination "platform=macOS" build

@@ -1,0 +1,36 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build and test
+        run: |
+          swift --version
+          swift build -c release --build-tests
+          swift test --parallel
+
+      - name: Package CLI artifact
+        run: |
+          mkdir -p dist
+          cp .build/release/freesound-tester dist/freesound-tester-macos
+          chmod +x dist/freesound-tester-macos
+          shasum -a 256 dist/freesound-tester-macos > dist/checksums.txt
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            dist/freesound-tester-macos
+            dist/checksums.txt
+          generate_release_notes: true
