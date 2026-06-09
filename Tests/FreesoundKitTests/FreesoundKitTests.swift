@@ -8,7 +8,7 @@
 import Foundation
 import Testing
 
-@testable import FreesoundKit
+import FreesoundKit
 
 @Test func textSearchUsesTokenAuthHeader() async throws {
     let mockSession = MockHTTPClient { request in
