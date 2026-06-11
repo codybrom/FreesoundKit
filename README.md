@@ -16,8 +16,8 @@ Unofficial Swift client for the [Freesound API v2](https://freesound.org/docs/ap
 
 ## Requirements
 
-- Swift 6 / Xcode 16+
-- macOS 15+, iOS 18+, tvOS 18+, watchOS 11+, visionOS 2+
+- Swift 6 toolchain (Xcode 16+ on Apple platforms)
+- macOS 15+, iOS 18+, tvOS 18+, watchOS 11+, visionOS 2+ (Linux and Android via Swift Package Manager)
 
 ## Install
 
@@ -169,3 +169,12 @@ When a limit is exceeded the API responds `429`, surfaced here as
 `FreesoundError.rateLimited(retryAfter:detail:)` — `retryAfter` carries the
 server's `Retry-After` hint in seconds when present, and `detail` says which
 limit was hit. Contact Freesound if you need higher limits.
+
+To honor `Retry-After` automatically, wrap an idempotent call in
+`withRateLimitRetry`:
+
+```swift
+let page = try await client.withRateLimitRetry {
+    try await client.textSearch(query: "rain")
+}
+```

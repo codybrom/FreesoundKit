@@ -7,6 +7,7 @@
 
 import Foundation
 import FreesoundKit
+import Synchronization
 import Testing
 
 #if canImport(FoundationNetworking)
@@ -341,9 +342,11 @@ import Testing
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Token test-key")
         let responseJSON: String
         if request.url?.query?.contains("page=2") == true {
-            responseJSON = #"{"count":2,"next":null,"previous":"\#(page1URL)","results":[{"id":2}]}"#
+            responseJSON =
+                #"{"count":2,"next":null,"previous":"\#(page1URL)","results":[{"id":2}]}"#
         } else {
-            responseJSON = #"{"count":2,"next":"\#(page2URL)","previous":null,"results":[{"id":1}]}"#
+            responseJSON =
+                #"{"count":2,"next":"\#(page2URL)","previous":null,"results":[{"id":1}]}"#
         }
         return (Data(responseJSON.utf8), makeResponse())
     }
@@ -409,6 +412,185 @@ import Testing
     do {
         _ = try await client.downloadPreview(for: sound, format: .lqOGG)
         Issue.record("Expected invalidInput error")
+    } catch let error as FreesoundError {
+        guard case .invalidInput = error else {
+            Issue.record("Expected invalidInput, got \(error)")
+            return
+        }
+    }
+}
+
+@Test func parsesFreesoundTimestamps() async throws {
+    // Sound timestamps carry milliseconds; user timestamps do not. Both are
+    // timezone-less and interpreted as UTC.
+    let sound = try JSONDecoder().decode(
+        Sound.self, from: Data(#"{"id":1,"created":"2014-04-16T20:07:11.145"}"#.utf8))
+    let user = try JSONDecoder().decode(
+        User.self,
+        from: Data(#"{"username":"alice","date_joined":"2008-08-07T17:39:00"}"#.utf8))
+
+    var utc = Calendar(identifier: .gregorian)
+    utc.timeZone = TimeZone(secondsFromGMT: 0)!
+
+    let createdComponents = utc.dateComponents(
+        [.year, .month, .day, .hour, .minute, .second, .nanosecond],
+        from: try #require(sound.createdDate))
+    #expect(createdComponents.year == 2014)
+    #expect(createdComponents.month == 4)
+    #expect(createdComponents.day == 16)
+    #expect(createdComponents.hour == 20)
+    #expect(createdComponents.minute == 7)
+    #expect(createdComponents.second == 11)
+    // The fractional-seconds strategy must preserve the ".145" millisecond part.
+    let nanos = try #require(createdComponents.nanosecond)
+    #expect(abs(nanos - 145_000_000) < 1_000_000)
+
+    let joinedComponents = utc.dateComponents(
+        [.year, .hour, .minute], from: try #require(user.dateJoinedDate))
+    #expect(joinedComponents.year == 2008)
+    #expect(joinedComponents.hour == 17)
+    #expect(joinedComponents.minute == 39)
+
+    // The same helper backs Comment, Pack, and PendingUpload; verify each wires
+    // it to the right field rather than trusting only the Sound/User paths.
+    #expect(Comment(created: "2014-04-16T20:07:11.145").createdDate != nil)
+    #expect(Pack(id: 1, created: "2014-04-16T20:07:11.145").createdDate != nil)
+    #expect(PendingUpload(uploadDate: "2008-08-07T17:39:00").uploadedDate != nil)
+}
+
+@Test func unparsableTimestampYieldsNil() {
+    #expect(Sound(id: 1, created: "not a date").createdDate == nil)
+    #expect(Sound(id: 1, created: nil).createdDate == nil)
+}
+
+@Test func modelsAreIdentifiableAndEquatable() {
+    let a = Sound(id: 7, name: "Kick")
+    let b = Sound(id: 7, name: "Kick")
+    let c = Sound(id: 7, name: "Snare")
+    #expect(a == b)
+    #expect(a != c)
+    #expect(a.id == 7)
+    // Hashable: equal values hash equally; usable as Set/dictionary keys.
+    #expect(Set([a, b, c]).count == 2)
+
+    // Identifiable via username for user models.
+    #expect(User(username: "alice").id == "alice")
+    #expect(Me(username: "bob").id == "bob")
+}
+
+@Test func rateLimitRetrySucceedsAfterThrottle() async throws {
+    let attempts = Mutex(0)
+    let result = try await FreesoundClient(session: MockHTTPClient.unused).withRateLimitRetry(
+        maxAttempts: 3, fallbackDelay: 0, maxDelay: 0
+    ) {
+        let attempt = attempts.withLock {
+            $0 += 1
+            return $0
+        }
+        if attempt < 3 {
+            throw FreesoundError.rateLimited(retryAfter: nil, detail: "throttled")
+        }
+        return attempt
+    }
+    #expect(result == 3)
+    #expect(attempts.withLock { $0 } == 3)
+}
+
+@Test func rateLimitRetryGivesUpAfterMaxAttempts() async throws {
+    let attempts = Mutex(0)
+    do {
+        _ =
+            try await FreesoundClient(session: MockHTTPClient.unused).withRateLimitRetry(
+                maxAttempts: 2, fallbackDelay: 0, maxDelay: 0
+            ) {
+                attempts.withLock { $0 += 1 }
+                throw FreesoundError.rateLimited(retryAfter: nil, detail: "throttled")
+            } as Int
+        Issue.record("Expected rateLimited to be rethrown")
+        return
+    } catch let error as FreesoundError {
+        guard case .rateLimited = error else {
+            Issue.record("Expected rateLimited, got \(error)")
+            return
+        }
+    }
+    #expect(attempts.withLock { $0 } == 2)
+}
+
+@Test func rateLimitRetryDoesNotSwallowOtherErrors() async throws {
+    let attempts = Mutex(0)
+    do {
+        _ =
+            try await FreesoundClient(session: MockHTTPClient.unused).withRateLimitRetry {
+                attempts.withLock { $0 += 1 }
+                throw FreesoundError.oauthRequired
+            } as Int
+        Issue.record("Expected oauthRequired to be rethrown")
+        return
+    } catch let error as FreesoundError {
+        guard case .oauthRequired = error else {
+            Issue.record("Expected oauthRequired, got \(error)")
+            return
+        }
+    }
+    // Non-rate-limit errors are not retried.
+    #expect(attempts.withLock { $0 } == 1)
+}
+
+@Test func rateLimitRetryWaitsForRetryAfter() async throws {
+    // Exercises the delay path the other retry tests skip: a non-nil Retry-After
+    // is extracted, clamped, and actually slept through before the next attempt.
+    let clock = ContinuousClock()
+    let attempts = Mutex(0)
+    let start = clock.now
+    let result = try await FreesoundClient(session: MockHTTPClient.unused).withRateLimitRetry(
+        maxAttempts: 2, fallbackDelay: 0, maxDelay: 60
+    ) {
+        let attempt = attempts.withLock {
+            $0 += 1
+            return $0
+        }
+        if attempt == 1 {
+            throw FreesoundError.rateLimited(retryAfter: 0.05, detail: "throttled")
+        }
+        return attempt
+    }
+    #expect(result == 2)
+    #expect(clock.now - start >= .milliseconds(40))
+}
+
+@Test func rateLimitRetryHonorsCancellationWithoutDelay() async throws {
+    let attempts = Mutex(0)
+    let task = Task {
+        try await FreesoundClient(session: MockHTTPClient.unused).withRateLimitRetry(
+            maxAttempts: 1_000_000, fallbackDelay: 0, maxDelay: 0
+        ) {
+            attempts.withLock { $0 += 1 }
+            throw FreesoundError.rateLimited(retryAfter: nil, detail: "throttled")
+        } as Int
+    }
+    task.cancel()
+    do {
+        _ = try await task.value
+        Issue.record("Expected cancellation to propagate")
+        return
+    } catch is CancellationError {
+        // expected: the loop checks cancellation between attempts even with no
+        // delay, so it stops far short of its million-attempt ceiling.
+    }
+    #expect(attempts.withLock { $0 } < 1_000_000)
+}
+
+@Test func rateLimitRetryRejectsNonPositiveMaxAttempts() async throws {
+    do {
+        _ =
+            try await FreesoundClient(session: MockHTTPClient.unused).withRateLimitRetry(
+                maxAttempts: 0
+            ) {
+                42
+            } as Int
+        Issue.record("Expected invalidInput to be thrown")
+        return
     } catch let error as FreesoundError {
         guard case .invalidInput = error else {
             Issue.record("Expected invalidInput, got \(error)")

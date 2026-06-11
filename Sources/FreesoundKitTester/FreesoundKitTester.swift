@@ -37,7 +37,7 @@ enum FreesoundKitTester {
                 throw CLIError.unknownCommand(command)
             }
         } catch {
-            FileHandle.standardError.write(Data("Error: \(error)\n\n".utf8))
+            try? FileHandle.standardError.write(contentsOf: Data("Error: \(error)\n\n".utf8))
             printUsage()
             Foundation.exit(1)
         }

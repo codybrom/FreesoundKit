@@ -28,9 +28,14 @@ public protocol FreesoundHTTPClient: Sendable {
 extension URLSession: FreesoundHTTPClient {}
 
 #if canImport(FoundationNetworking)
-    // Darwin Foundation declares URLSession Sendable but corelibs-foundation
-    // does not, even though URLSession is documented as thread-safe.
-    extension URLSession: @retroactive @unchecked Sendable {}
+    // Darwin Foundation declares URLSession Sendable but corelibs-foundation did
+    // not before Swift 6.2, even though URLSession is documented as thread-safe.
+    // Newer toolchains declare the conformance themselves, so only add it on the
+    // toolchains that are missing it — otherwise the compiler warns that the
+    // conformance was already stated in FoundationNetworking.
+    #if compiler(<6.2)
+        extension URLSession: @retroactive @unchecked Sendable {}
+    #endif
 
     // corelibs-foundation lacks Darwin's async data(for:), so bridge the
     // completion-handler API to satisfy FreesoundHTTPClient.
@@ -665,6 +670,68 @@ public final class FreesoundClient: Sendable {
         )
     }
 
+    // MARK: - Rate-limit handling
+
+    /// Runs an operation, automatically retrying when Freesound throttles it.
+    ///
+    /// If `operation` throws ``FreesoundError/rateLimited(retryAfter:detail:)``,
+    /// this waits for the server-suggested delay (or `fallbackDelay` when the API
+    /// sends no `Retry-After`), capped at `maxDelay`, then retries — up to
+    /// `maxAttempts` total attempts. Any other error, or a throttle on the final
+    /// attempt, is rethrown unchanged.
+    ///
+    /// ```swift
+    /// let page = try await client.withRateLimitRetry {
+    ///     try await client.textSearch(query: "rain")
+    /// }
+    /// ```
+    ///
+    /// The wait honors task cancellation: cancelling the surrounding task while
+    /// it is waiting between attempts throws `CancellationError`.
+    ///
+    /// - Important: `operation` is re-run in full on each retry, so wrap only
+    ///   idempotent work. Repeating a non-idempotent request — an upload, edit,
+    ///   comment, rate, or bookmark — would submit it more than once.
+    /// - Parameters:
+    ///   - maxAttempts: The maximum number of attempts, including the first. Must be at least 1.
+    ///   - fallbackDelay: The wait to use when the API sends no `Retry-After`, in seconds.
+    ///   - maxDelay: An upper bound on the wait between attempts, in seconds. The
+    ///     cap takes precedence over a larger server-suggested `Retry-After`.
+    ///   - operation: The request, or sequence of requests, to run.
+    /// - Returns: The operation's result once an attempt succeeds.
+    /// - Throws: ``FreesoundError/invalidInput(_:)`` if `maxAttempts` is less than 1;
+    ///   the last ``FreesoundError`` if every attempt is throttled; or any other
+    ///   error thrown by `operation`.
+    public func withRateLimitRetry<T: Sendable>(
+        maxAttempts: Int = 3,
+        fallbackDelay: TimeInterval = 5,
+        maxDelay: TimeInterval = 60,
+        operation: @Sendable () async throws -> T
+    ) async throws -> T {
+        guard maxAttempts >= 1 else {
+            throw FreesoundError.invalidInput("maxAttempts must be at least 1")
+        }
+        var attempt = 0
+        while true {
+            attempt += 1
+            do {
+                return try await operation()
+            } catch let error as FreesoundError {
+                guard case .rateLimited(let retryAfter, _) = error, attempt < maxAttempts else {
+                    throw error
+                }
+                // Don't start another attempt if the surrounding task was
+                // cancelled — this also covers the zero-delay path, which never
+                // reaches the `Task.sleep` cancellation point below.
+                try Task.checkCancellation()
+                let delay = min(max(retryAfter ?? fallbackDelay, 0), maxDelay)
+                if delay > 0 {
+                    try await Task.sleep(for: .seconds(delay))
+                }
+            }
+        }
+    }
+
     // MARK: - Internal request plumbing
 
     private func send<T: Decodable>(
@@ -855,7 +922,11 @@ public final class FreesoundClient: Sendable {
     }
 
     private func encodedPathComponent(_ component: String) -> String {
-        component.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? component
+        // `.urlPathAllowed` permits "/" because it describes a whole path; a
+        // single segment (e.g. a username) must escape it so the value can't
+        // inject extra path components.
+        let allowed = CharacterSet.urlPathAllowed.subtracting(CharacterSet(charactersIn: "/"))
+        return component.addingPercentEncoding(withAllowedCharacters: allowed) ?? component
     }
 
     private func multipartBody(
