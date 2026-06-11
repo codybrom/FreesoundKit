@@ -27,6 +27,12 @@ public protocol FreesoundHTTPClient: Sendable {
 
 extension URLSession: FreesoundHTTPClient {}
 
+#if canImport(FoundationNetworking)
+    // Darwin Foundation declares URLSession Sendable but corelibs-foundation
+    // does not, even though URLSession is documented as thread-safe.
+    extension URLSession: @retroactive @unchecked Sendable {}
+#endif
+
 /// The credential a ``FreesoundClient`` sends with each request.
 public enum FreesoundAuthentication: Sendable, Equatable {
     /// No credential is sent. Only unauthenticated endpoints will succeed.
