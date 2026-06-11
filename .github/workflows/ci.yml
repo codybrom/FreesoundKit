@@ -39,18 +39,10 @@ jobs:
     name: Swift Package (Linux, Swift ${{ matrix.swift }})
     runs-on: ubuntu-latest
     container: swift:${{ matrix.swift }}
-    # 6.2 is advisory: it exercises the `#if compiler(<6.2)` path in
-    # FreesoundClient.swift where the retroactive URLSession Sendable conformance
-    # is dropped. Don't block merges on it until that toolchain's
-    # corelibs-foundation behavior is confirmed.
-    continue-on-error: ${{ matrix.experimental || false }}
     strategy:
       fail-fast: false
       matrix:
-        swift: ["6.1"]
-        include:
-          - swift: "6.2"
-            experimental: true
+        swift: ["6.1", "6.2"]
     steps:
       - uses: actions/checkout@v6
 
@@ -69,9 +61,7 @@ jobs:
   android:
     name: Swift Package (Android)
     runs-on: ubuntu-latest
-    # Cross-compiles for Android (build only, no emulator). Advisory until the
-    # first run is green — drop continue-on-error to make it required.
-    continue-on-error: true
+    # Cross-compiles for Android (build only, no emulator).
     steps:
       - uses: actions/checkout@v6
       - uses: skiptools/swift-android-action@v2
