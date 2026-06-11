@@ -1,3 +1,0 @@
-// Shared Xcode build settings.
-// Per-developer overrides (e.g. DEVELOPMENT_TEAM) live in Local.xcconfig — see Local.xcconfig.template.
-#include? "Local.xcconfig"
