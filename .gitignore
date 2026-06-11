@@ -19,6 +19,8 @@ DerivedData/
 Config/Local.xcconfig
 
 # Credentials
+.env
+.env.local
 .netrc
 
 # Xcode projects

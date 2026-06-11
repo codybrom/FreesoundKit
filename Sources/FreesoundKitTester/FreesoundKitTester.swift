@@ -10,9 +10,12 @@ import FreesoundKit
 
 @main
 enum FreesoundKitTester {
+  /// Environment variables loaded from `.env` in the working directory, if present.
+  private static let dotEnv = loadDotEnv()
+
   static func main() async {
     let arguments = Array(CommandLine.arguments.dropFirst())
-    let parser = CLIParser(arguments: arguments)
+    let parser = CLIParser(arguments: arguments, env: dotEnv)
 
     guard let command = parser.command else {
       printUsage()
@@ -44,7 +47,7 @@ enum FreesoundKitTester {
   }
 
   private static func runSearch(parser: CLIParser) async throws {
-    let apiKey = try parser.requiredValue(flags: ["--api-key"], env: "FREESOUND_API_KEY")
+    let apiKey = try parser.requiredValue(flags: ["--api-key"], envKey: "FREESOUND_API_KEY")
     let query = try parser.requiredValue(flags: ["--query"])
     let fields = parser.value(flags: ["--fields"])
     let pageSize = parser.value(flags: ["--page-size"])
@@ -62,7 +65,7 @@ enum FreesoundKitTester {
   }
 
   private static func runOAuthURL(parser: CLIParser) throws {
-    let clientID = try parser.requiredValue(flags: ["--client-id"], env: "FREESOUND_CLIENT_ID")
+    let clientID = try parser.requiredValue(flags: ["--client-id"], envKey: "FREESOUND_CLIENT_ID")
     let state = parser.value(flags: ["--state"])
     let redirectURI = parser.value(flags: ["--redirect-uri", "--redirect"])
     let forceLogin = parser.hasFlag("--force-login")
@@ -78,9 +81,9 @@ enum FreesoundKitTester {
   }
 
   private static func runOAuthExchange(parser: CLIParser) async throws {
-    let clientID = try parser.requiredValue(flags: ["--client-id"], env: "FREESOUND_CLIENT_ID")
+    let clientID = try parser.requiredValue(flags: ["--client-id"], envKey: "FREESOUND_CLIENT_ID")
     let clientSecret = try parser.requiredValue(
-      flags: ["--client-secret"], env: "FREESOUND_CLIENT_SECRET")
+      flags: ["--client-secret"], envKey: "FREESOUND_CLIENT_SECRET")
     let code = try parser.requiredValue(flags: ["--code"])
 
     let client = FreesoundClient()
@@ -99,11 +102,11 @@ enum FreesoundKitTester {
   }
 
   private static func runOAuthRefresh(parser: CLIParser) async throws {
-    let clientID = try parser.requiredValue(flags: ["--client-id"], env: "FREESOUND_CLIENT_ID")
+    let clientID = try parser.requiredValue(flags: ["--client-id"], envKey: "FREESOUND_CLIENT_ID")
     let clientSecret = try parser.requiredValue(
-      flags: ["--client-secret"], env: "FREESOUND_CLIENT_SECRET")
+      flags: ["--client-secret"], envKey: "FREESOUND_CLIENT_SECRET")
     let refreshToken = try parser.requiredValue(
-      flags: ["--refresh-token"], env: "FREESOUND_REFRESH_TOKEN")
+      flags: ["--refresh-token"], envKey: "FREESOUND_REFRESH_TOKEN")
 
     let client = FreesoundClient()
     let token = try await client.refreshAccessToken(
@@ -122,7 +125,7 @@ enum FreesoundKitTester {
 
   private static func runMe(parser: CLIParser) async throws {
     let accessToken = try parser.requiredValue(
-      flags: ["--access-token"], env: "FREESOUND_ACCESS_TOKEN")
+      flags: ["--access-token"], envKey: "FREESOUND_ACCESS_TOKEN")
     let client = FreesoundClient(authentication: .oauthToken(accessToken))
     let me = try await client.me()
     print("username: \(me.username)")
@@ -161,10 +164,34 @@ enum FreesoundKitTester {
       """
     print(usage)
   }
+
+  /// Loads a `.env` file from the working directory, if one exists.
+  private static func loadDotEnv() -> [String: String] {
+    let fm = FileManager.default
+    let url = URL(fileURLWithPath: fm.currentDirectoryPath).appendingPathComponent(".env")
+    guard let data = try? Data(contentsOf: url),
+      let text = String(data: data, encoding: .utf8)
+    else {
+      return [:]
+    }
+    var env: [String: String] = [:]
+    for line in text.split(separator: "\n") {
+      let trimmed = line.trimmingCharacters(in: .whitespaces)
+      if trimmed.isEmpty || trimmed.hasPrefix("#") { continue }
+      let parts = trimmed.split(separator: "=", maxSplits: 1)
+      if parts.count == 2 {
+        let key = String(parts[0])
+        let value = String(parts[1])
+        env[key] = value
+      }
+    }
+    return env
+  }
 }
 
 private struct CLIParser {
   let arguments: [String]
+  let env: [String: String]
   var command: String? { arguments.first }
 
   func hasFlag(_ flag: String) -> Bool {
@@ -182,12 +209,17 @@ private struct CLIParser {
     return nil
   }
 
-  func requiredValue(flags: [String], env: String? = nil) throws -> String {
+  func requiredValue(flags: [String], envKey: String? = nil) throws -> String {
     if let value = value(flags: flags) {
       return value
     }
-    if let env, let envValue = ProcessInfo.processInfo.environment[env], !envValue.isEmpty {
-      return envValue
+    if let envKey {
+      if let envValue = env[envKey], !envValue.isEmpty {
+        return envValue
+      }
+      if let envValue = ProcessInfo.processInfo.environment[envKey], !envValue.isEmpty {
+        return envValue
+      }
     }
     throw CLIError.missingRequired(flags.first ?? "value")
   }
