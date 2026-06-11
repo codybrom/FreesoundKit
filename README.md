@@ -10,6 +10,9 @@ Unofficial Swift client for the [Freesound API v2](https://freesound.org/docs/ap
 - OAuth2 bearer auth (`Authorization: Bearer ...`)
 - OAuth2 authorization-code + refresh token exchange
 - Typed models for sound metadata + audio descriptor fields
+- A `Sendable` client you can share across tasks and actors
+- Pagination helpers (`nextPage`, `previousPage`, `moreResults`)
+- Preview downloads that work without OAuth (`downloadPreview`)
 
 ## Requirements
 
@@ -34,6 +37,18 @@ import FreesoundKit
 let client = FreesoundClient(authentication: .apiKey("<YOUR_API_KEY>"))
 let page = try await client.textSearch(query: "piano")
 print(page.results.first?.name ?? "no results")
+
+// Walk pages without rebuilding query parameters
+if let next = try await client.nextPage(of: page) {
+    print("next page has \(next.results.count) results")
+}
+
+// Preview audio is public — no OAuth needed (request the "previews" field)
+let sounds = try await client.textSearch(
+    query: "piano", parameters: ["fields": "id,name,previews"])
+if let sound = sounds.results.first {
+    let mp3Data = try await client.downloadPreview(for: sound)
+}
 ```
 
 ## OAuth2 usage
@@ -71,8 +86,9 @@ let refreshed = try await client.refreshAccessToken(
 
 ## Implemented endpoints
 
-- `textSearch`, `contentSearch`, `combinedSearch`
-- `sound`, `soundAnalysis`, `similarSounds`, `soundComments`, `downloadOriginalSound`
+- `textSearch`, `contentSearch`, `combinedSearch` (+ `moreResults`)
+- `page(at:)`, `nextPage`, `previousPage` for any paged response
+- `sound`, `soundAnalysis`, `similarSounds`, `soundComments`, `downloadOriginalSound`, `downloadPreview`
 - `uploadSound`, `describeSound`, `editSound`, `pendingUploads`, `bookmarkSound`, `rateSound`, `commentSound`
 - `user`, `userSounds`, `userPacks`
 - `pack`, `packSounds`, `downloadPack`
@@ -90,6 +106,8 @@ do {
     switch error {
     case .apiError(let statusCode, let detail):
         print("API error \(statusCode): \(detail)")
+    case .rateLimited(let retryAfter, let detail):
+        print("Throttled (\(detail)); retry after \(retryAfter ?? 60)s")
     case .oauthRequired:
         print("This endpoint needs an OAuth token")
     default:
@@ -148,5 +166,6 @@ Freesound throttles requests ([overview](https://freesound.org/docs/api/overview
 | Write (upload, describe, edit, comment, rate, bookmark) | 30 | 500 |
 
 When a limit is exceeded the API responds `429`, surfaced here as
-`FreesoundError.apiError(statusCode: 429, detail:)` — inspect the `detail` for
-which limit was hit. Contact Freesound if you need higher limits.
+`FreesoundError.rateLimited(retryAfter:detail:)` — `retryAfter` carries the
+server's `Retry-After` hint in seconds when present, and `detail` says which
+limit was hit. Contact Freesound if you need higher limits.

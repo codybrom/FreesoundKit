@@ -5,7 +5,9 @@
 //  Created by Cody Bromley on 6/9/26.
 //
 
+import Dispatch
 import Foundation
+import Synchronization
 
 #if canImport(FoundationNetworking)
     import FoundationNetworking
@@ -16,7 +18,7 @@ import Foundation
 /// `URLSession` conforms to this protocol by default. Provide a custom
 /// conformance to stub network responses in tests or to route requests
 /// through your own transport.
-public protocol FreesoundHTTPClient {
+public protocol FreesoundHTTPClient: Sendable {
     /// Fetches the data for the given request.
     /// - Parameter request: The request to perform.
     /// - Returns: The response body and metadata.
@@ -54,13 +56,20 @@ public enum FreesoundAuthentication: Sendable, Equatable {
 /// ```
 ///
 /// Every endpoint method throws ``FreesoundError`` on failure.
-public final class FreesoundClient {
+///
+/// The client is `Sendable`: a single instance can be shared across tasks and
+/// actors, and ``authentication`` may be updated from any thread.
+public final class FreesoundClient: Sendable {
     /// The API root that request paths are resolved against.
     public let baseURL: URL
     /// The credential sent with each request. Update this after refreshing an
-    /// OAuth token without recreating the client.
-    public var authentication: FreesoundAuthentication
+    /// OAuth token without recreating the client. Thread-safe.
+    public var authentication: FreesoundAuthentication {
+        get { authenticationStorage.withLock { $0 } }
+        set { authenticationStorage.withLock { $0 = newValue } }
+    }
 
+    private let authenticationStorage: Mutex<FreesoundAuthentication>
     private let session: FreesoundHTTPClient
     private let decoder: JSONDecoder
 
@@ -70,7 +79,8 @@ public final class FreesoundClient {
     ///   - authentication: The credential to send. Defaults to ``FreesoundAuthentication/none``.
     ///   - session: The HTTP transport. Defaults to `URLSession.shared`; inject a
     ///     custom ``FreesoundHTTPClient`` to stub requests in tests.
-    ///   - decoder: The JSON decoder used for response bodies.
+    ///   - decoder: The JSON decoder used for response bodies. Do not mutate it
+    ///     after passing it in; the client may use it from multiple threads.
     public init(
         baseURL: URL = URL(string: "https://freesound.org/apiv2")!,
         authentication: FreesoundAuthentication = .none,
@@ -78,7 +88,7 @@ public final class FreesoundClient {
         decoder: JSONDecoder = JSONDecoder()
     ) {
         self.baseURL = baseURL
-        self.authentication = authentication
+        self.authenticationStorage = Mutex(authentication)
         self.session = session
         self.decoder = decoder
     }
@@ -112,14 +122,62 @@ public final class FreesoundClient {
     }
 
     /// Searches sounds using both text and audio-content criteria.
+    ///
+    /// Unlike the other search endpoints, combined search does not report a
+    /// total count or page numbers; fetch further results with
+    /// ``moreResults(of:)``.
     /// - Parameter parameters: Combined text and content query parameters.
     ///   `nil` values are omitted.
-    /// - Returns: A page of matching ``Sound`` results.
+    /// - Returns: The matching ``Sound`` results and an optional `more` link.
     /// - Throws: ``FreesoundError`` if the request fails.
-    public func combinedSearch(parameters: [String: String?] = [:]) async throws -> PagedResponse<
-        Sound
-    > {
+    public func combinedSearch(parameters: [String: String?] = [:]) async throws
+        -> CombinedSearchResponse
+    {
         try await send(path: "/search/combined/", query: parameters)
+    }
+
+    /// Fetches the next batch of combined-search results.
+    /// - Parameter response: A previous combined-search response.
+    /// - Returns: The next batch, or `nil` if `response` has no `more` link.
+    /// - Throws: ``FreesoundError`` if the request fails.
+    public func moreResults(of response: CombinedSearchResponse) async throws
+        -> CombinedSearchResponse?
+    {
+        guard let more = response.more else { return nil }
+        return try await send(url: resolveLink(more))
+    }
+
+    // MARK: - Pagination
+
+    /// Fetches the page of results at a URL previously returned by the API.
+    /// - Parameter url: A page URL, such as ``PagedResponse/next`` or
+    ///   ``PagedResponse/previous``.
+    /// - Returns: The requested page.
+    /// - Throws: ``FreesoundError`` if the request fails.
+    public func page<Item: Decodable & Sendable>(at url: URL) async throws -> PagedResponse<Item> {
+        try await send(url: url)
+    }
+
+    /// Fetches the page after the given one.
+    /// - Parameter page: A previously fetched page.
+    /// - Returns: The next page, or `nil` if `page` is the last one.
+    /// - Throws: ``FreesoundError`` if the request fails.
+    public func nextPage<Item: Decodable & Sendable>(of page: PagedResponse<Item>) async throws
+        -> PagedResponse<Item>?
+    {
+        guard let next = page.next else { return nil }
+        return try await send(url: next)
+    }
+
+    /// Fetches the page before the given one.
+    /// - Parameter page: A previously fetched page.
+    /// - Returns: The previous page, or `nil` if `page` is the first one.
+    /// - Throws: ``FreesoundError`` if the request fails.
+    public func previousPage<Item: Decodable & Sendable>(of page: PagedResponse<Item>) async throws
+        -> PagedResponse<Item>?
+    {
+        guard let previous = page.previous else { return nil }
+        return try await send(url: previous)
     }
 
     // MARK: - Sounds
@@ -187,6 +245,39 @@ public final class FreesoundClient {
         try await sendData(path: "/sounds/\(id)/download/", requiresOAuth: true)
     }
 
+    /// Downloads the preview (lossy-compressed) audio for a sound.
+    ///
+    /// Preview files are public, so this works with any ``authentication`` —
+    /// unlike ``downloadOriginalSound(id:)``, which requires OAuth.
+    /// - Parameters:
+    ///   - sound: The sound to fetch a preview of. Its ``Sound/previews`` must
+    ///     be populated (include `previews` in the requested `fields`).
+    ///   - format: The preview encoding to fetch. Defaults to high-quality MP3.
+    /// - Returns: The raw preview audio data.
+    /// - Throws: ``FreesoundError/invalidInput(_:)`` if the sound has no URL for
+    ///   the requested format, or another ``FreesoundError`` if the request fails.
+    public func downloadPreview(for sound: Sound, format: SoundPreviewFormat = .hqMP3)
+        async throws -> Data
+    {
+        guard let previews = sound.previews else {
+            throw FreesoundError.invalidInput(
+                "Sound \(sound.id) has no preview URLs; include \"previews\" in the requested fields."
+            )
+        }
+        let previewURL: URL? =
+            switch format {
+            case .hqMP3: previews.previewHQMP3
+            case .lqMP3: previews.previewLQMP3
+            case .hqOGG: previews.previewHQOGG
+            case .lqOGG: previews.previewLQOGG
+            }
+        guard let previewURL else {
+            throw FreesoundError.invalidInput(
+                "Sound \(sound.id) has no \(format) preview URL.")
+        }
+        return try await sendData(url: previewURL, applyAuthentication: false)
+    }
+
     /// Uploads an audio file to the authenticated user's account.
     ///
     /// Requires an ``FreesoundAuthentication/oauthToken(_:)``. If `request`
@@ -205,7 +296,7 @@ public final class FreesoundClient {
         request: SoundUploadRequest? = nil,
         fileFieldName: String = "audiofile"
     ) async throws -> UploadSoundResponse {
-        let fileData = try Data(contentsOf: fileURL)
+        let fileData = try await Self.readFile(at: fileURL)
         let boundary = "Boundary-\(UUID().uuidString)"
         let body = multipartBody(
             fields: request?.asFormFields ?? [:],
@@ -563,8 +654,26 @@ public final class FreesoundClient {
         requiresOAuth: Bool = false,
         authenticationOverride: FreesoundAuthentication? = nil
     ) async throws -> T {
+        try await send(
+            url: buildURL(path: path, query: query),
+            method: method,
+            body: body,
+            contentType: contentType,
+            requiresOAuth: requiresOAuth,
+            authenticationOverride: authenticationOverride
+        )
+    }
+
+    private func send<T: Decodable>(
+        url: URL,
+        method: String = "GET",
+        body: Data? = nil,
+        contentType: String? = nil,
+        requiresOAuth: Bool = false,
+        authenticationOverride: FreesoundAuthentication? = nil
+    ) async throws -> T {
         let auth = authenticationOverride ?? authentication
-        var request = try URLRequest(url: buildURL(path: path, query: query))
+        var request = URLRequest(url: url)
         request.httpMethod = method
         request.httpBody = body
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -573,23 +682,11 @@ public final class FreesoundClient {
         }
         try applyAuth(auth: auth, requiresOAuth: requiresOAuth, to: &request)
 
+        let data = try await perform(request)
         do {
-            let (data, response) = try await session.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw FreesoundError.invalidResponse
-            }
-            guard (200...299).contains(httpResponse.statusCode) else {
-                throw mapAPIError(statusCode: httpResponse.statusCode, data: data)
-            }
-            do {
-                return try decoder.decode(T.self, from: data)
-            } catch {
-                throw FreesoundError.decodingError(String(describing: error))
-            }
-        } catch let error as FreesoundError {
-            throw error
+            return try decoder.decode(T.self, from: data)
         } catch {
-            throw FreesoundError.transportError(String(describing: error))
+            throw FreesoundError.decodingError(error)
         }
     }
 
@@ -601,28 +698,60 @@ public final class FreesoundClient {
         contentType: String? = nil,
         requiresOAuth: Bool = false
     ) async throws -> Data {
-        var request = try URLRequest(url: buildURL(path: path, query: query))
+        try await sendData(
+            url: buildURL(path: path, query: query),
+            method: method,
+            body: body,
+            contentType: contentType,
+            requiresOAuth: requiresOAuth
+        )
+    }
+
+    private func sendData(
+        url: URL,
+        method: String = "GET",
+        body: Data? = nil,
+        contentType: String? = nil,
+        requiresOAuth: Bool = false,
+        applyAuthentication: Bool = true
+    ) async throws -> Data {
+        var request = URLRequest(url: url)
         request.httpMethod = method
         request.httpBody = body
         request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
         if let contentType {
             request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         }
-        try applyAuth(auth: authentication, requiresOAuth: requiresOAuth, to: &request)
+        if applyAuthentication {
+            try applyAuth(auth: authentication, requiresOAuth: requiresOAuth, to: &request)
+        }
+        return try await perform(request)
+    }
 
+    private func perform(_ request: URLRequest) async throws -> Data {
         do {
             let (data, response) = try await session.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {
                 throw FreesoundError.invalidResponse
             }
             guard (200...299).contains(httpResponse.statusCode) else {
-                throw mapAPIError(statusCode: httpResponse.statusCode, data: data)
+                throw mapAPIError(response: httpResponse, data: data)
             }
             return data
         } catch let error as FreesoundError {
             throw error
         } catch {
-            throw FreesoundError.transportError(String(describing: error))
+            throw FreesoundError.transportError(error)
+        }
+    }
+
+    /// Reads the file on a Dispatch thread so a large blocking read doesn't
+    /// stall the cooperative thread pool.
+    private static func readFile(at url: URL) async throws -> Data {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(with: Result { try Data(contentsOf: url) })
+            }
         }
     }
 
@@ -662,13 +791,27 @@ public final class FreesoundClient {
         return url
     }
 
-    private func mapAPIError(statusCode: Int, data: Data) -> FreesoundError {
+    private func mapAPIError(response: HTTPURLResponse, data: Data) -> FreesoundError {
         struct ErrorPayload: Decodable {
             let detail: String?
         }
 
         let detail = (try? decoder.decode(ErrorPayload.self, from: data))?.detail ?? "Unknown error"
-        return .apiError(statusCode: statusCode, detail: detail)
+        if response.statusCode == 429 {
+            let retryAfter = response.value(forHTTPHeaderField: "Retry-After")
+                .flatMap(TimeInterval.init)
+            return .rateLimited(retryAfter: retryAfter, detail: detail)
+        }
+        return .apiError(statusCode: response.statusCode, detail: detail)
+    }
+
+    /// Resolves an API pagination link, which may be absolute (`next`-style)
+    /// or a server-relative path (combined search's `more`).
+    private func resolveLink(_ link: String) throws -> URL {
+        guard let url = URL(string: link, relativeTo: baseURL) else {
+            throw FreesoundError.invalidInput("Cannot resolve pagination link: \(link)")
+        }
+        return url.absoluteURL
     }
 
     private func formEncodedBody(_ params: [String: String]) -> Data {

@@ -14,6 +14,17 @@ public struct PagedResponse<Item: Decodable & Sendable>: Decodable, Sendable {
     public let results: [Item]
 }
 
+/// The response from ``FreesoundClient/combinedSearch(parameters:)``.
+///
+/// Combined search does not report a total count, and pagination works through
+/// the ``more`` link rather than page numbers. Fetch further results with
+/// ``FreesoundClient/moreResults(of:)``.
+public struct CombinedSearchResponse: Decodable, Sendable {
+    public let results: [Sound]
+    /// A link to the next batch of results, or `nil` when there are no more.
+    public let more: String?
+}
+
 public struct APIStatusResponse: Decodable, Sendable {
     public let detail: String?
     public let status: String?
@@ -178,6 +189,19 @@ public struct SoundPreviews: Decodable, Sendable {
         case previewHQOGG = "preview-hq-ogg"
         case previewLQOGG = "preview-lq-ogg"
     }
+}
+
+/// A preview encoding offered by ``SoundPreviews``, used with
+/// ``FreesoundClient/downloadPreview(for:format:)``.
+public enum SoundPreviewFormat: Sendable {
+    /// High-quality MP3 (~128 kbps).
+    case hqMP3
+    /// Low-quality MP3 (~64 kbps).
+    case lqMP3
+    /// High-quality Ogg Vorbis (~192 kbps).
+    case hqOGG
+    /// Low-quality Ogg Vorbis (~80 kbps).
+    case lqOGG
 }
 
 public struct SoundImages: Decodable, Sendable {

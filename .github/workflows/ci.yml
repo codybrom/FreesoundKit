@@ -34,3 +34,22 @@ jobs:
 
       - name: Test
         run: swift test --parallel --enable-code-coverage
+
+  linux:
+    name: Swift Package (Linux)
+    runs-on: ubuntu-latest
+    container: swift:6.1
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Show Swift version
+        run: swift --version
+
+      - name: Resolve dependencies
+        run: swift package resolve
+
+      - name: Build
+        run: swift build --build-tests
+
+      - name: Test
+        run: swift test --parallel
