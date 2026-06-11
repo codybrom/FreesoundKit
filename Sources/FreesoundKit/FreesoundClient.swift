@@ -31,6 +31,22 @@ extension URLSession: FreesoundHTTPClient {}
     // Darwin Foundation declares URLSession Sendable but corelibs-foundation
     // does not, even though URLSession is documented as thread-safe.
     extension URLSession: @retroactive @unchecked Sendable {}
+
+    // corelibs-foundation lacks Darwin's async data(for:), so bridge the
+    // completion-handler API to satisfy FreesoundHTTPClient.
+    extension URLSession {
+        public func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+            try await withCheckedThrowingContinuation { continuation in
+                dataTask(with: request) { data, response, error in
+                    if let data, let response {
+                        continuation.resume(returning: (data, response))
+                    } else {
+                        continuation.resume(throwing: error ?? URLError(.badServerResponse))
+                    }
+                }.resume()
+            }
+        }
+    }
 #endif
 
 /// The credential a ``FreesoundClient`` sends with each request.
