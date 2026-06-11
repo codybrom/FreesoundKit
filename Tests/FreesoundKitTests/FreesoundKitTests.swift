@@ -6,9 +6,8 @@
 //
 
 import Foundation
-import Testing
-
 import FreesoundKit
+import Testing
 
 @Test func textSearchUsesTokenAuthHeader() async throws {
     let mockSession = MockHTTPClient { request in
@@ -127,6 +126,29 @@ import FreesoundKit
 
     let client = FreesoundClient(authentication: .oauthToken("oauth-token"), session: mockSession)
     let response = try await client.bookmarkSound(soundID: 99, category: "favorites")
+    #expect(response.detail == "ok")
+}
+
+@Test func editSoundUsesOAuthAndSendsOnlySetFields() async throws {
+    let mockSession = MockHTTPClient { request in
+        #expect(request.httpMethod == "POST")
+        #expect(request.url?.path == "/apiv2/sounds/42/edit")
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer oauth-token")
+        let body = String(data: request.httpBody ?? Data(), encoding: .utf8) ?? ""
+        #expect(body.contains("name=New+title"))
+        #expect(body.contains("tags=field+recording"))
+        // Unset fields must not be sent (partial update).
+        #expect(!body.contains("description="))
+        #expect(!body.contains("license="))
+        let responseJSON = #"{"detail":"ok"}"#
+        return (Data(responseJSON.utf8), makeResponse())
+    }
+
+    let client = FreesoundClient(authentication: .oauthToken("oauth-token"), session: mockSession)
+    let response = try await client.editSound(
+        soundID: 42,
+        request: SoundEditRequest(name: "New title", tags: ["field", "recording"])
+    )
     #expect(response.detail == "ok")
 }
 

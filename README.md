@@ -1,6 +1,8 @@
 # FreesoundKit
 
 [![CI](https://github.com/codybrom/FreesoundKit/actions/workflows/ci.yml/badge.svg)](https://github.com/codybrom/FreesoundKit/actions/workflows/ci.yml)
+[![Swift Version Compatibility](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fcodybrom%2FFreesoundKit%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/codybrom/FreesoundKit)
+[![Platform Compatibility](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fcodybrom%2FFreesoundKit%2Fbadge%3Ftype%3Dplatforms)](https://swiftpackageindex.com/codybrom/FreesoundKit)
 
 Unofficial Swift client for the [Freesound API v2](https://freesound.org/docs/api/) with support for:
 
@@ -71,7 +73,7 @@ let refreshed = try await client.refreshAccessToken(
 
 - `textSearch`, `contentSearch`, `combinedSearch`
 - `sound`, `soundAnalysis`, `similarSounds`, `soundComments`, `downloadOriginalSound`
-- `uploadSound`, `describeSound`, `pendingUploads`, `bookmarkSound`, `rateSound`, `commentSound`
+- `uploadSound`, `describeSound`, `editSound`, `pendingUploads`, `bookmarkSound`, `rateSound`, `commentSound`
 - `user`, `userSounds`, `userPacks`
 - `pack`, `packSounds`, `downloadPack`
 - `me`, `myBookmarkCategories`, `myBookmarkCategorySounds`
@@ -124,3 +126,27 @@ FREESOUND_ACCESS_TOKEN=... swift run freesound-tester me
 FREESOUND_CLIENT_ID=... FREESOUND_CLIENT_SECRET=... FREESOUND_REFRESH_TOKEN=... \
 swift run freesound-tester oauth-refresh
 ```
+
+## Terms of use & rate limits
+
+This library is an unofficial wrapper. Your use of the Freesound API is governed
+by Freesound's [Terms of Use](https://freesound.org/docs/api/terms_of_use.html).
+A few obligations that affect apps built with this library:
+
+- **Non-commercial by default.** The API is free for non-commercial use only;
+  commercial use requires a separate licensing agreement with Freesound.
+- **Attribution.** You must credit Freesound and the individual sound authors, and
+  respect each sound's license (visible via `Sound.license`). Surface this
+  wherever you play or display sounds.
+- **One key per app.** Don't register multiple API keys to work around limits.
+
+Freesound throttles requests ([overview](https://freesound.org/docs/api/overview.html)):
+
+| Operation | Per minute | Per day |
+| --- | --- | --- |
+| Standard (search, fetch, download) | 60 | 2,000 |
+| Write (upload, describe, edit, comment, rate, bookmark) | 30 | 500 |
+
+When a limit is exceeded the API responds `429`, surfaced here as
+`FreesoundError.apiError(statusCode: 429, detail:)` — inspect the `detail` for
+which limit was hit. Contact Freesound if you need higher limits.
