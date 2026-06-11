@@ -42,7 +42,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		1AAB9E8BB0234048BCEEE226 /* Shared.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Shared.xcconfig; path = Config/Shared.xcconfig; sourceTree = "<group>"; };
+		F90950802FDA622800869ACD /* Shared.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Shared.xcconfig; sourceTree = "<group>"; };
 		E64644503448F99596268818 /* FreesoundKit.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = FreesoundKit.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		EE213C6368990BB398DE2A47 /* FreesoundKitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FreesoundKitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F35CDE7BFE6BA8AAFE66FF76 /* FreesoundKitTester */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = FreesoundKitTester; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -95,9 +95,8 @@
 		63DE14B1A2BC40819583E5F7 /* Config */ = {
 			isa = PBXGroup;
 			children = (
-				1AAB9E8BB0234048BCEEE226 /* Shared.xcconfig */,
+				F90950802FDA622800869ACD /* Shared.xcconfig */,
 			);
-			name = Config;
 			path = Config;
 			sourceTree = "<group>";
 		};
@@ -236,7 +235,6 @@
 /* Begin XCBuildConfiguration section */
 		03E14D60FC8A22659AE13818 /* Debug configuration for PBXNativeTarget "FreesoundKitTester" */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 1AAB9E8BB0234048BCEEE226 /* Shared.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
@@ -255,7 +253,6 @@
 		};
 		19E4D782A4DD43711197B1C0 /* Release configuration for PBXNativeTarget "FreesoundKit" */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 1AAB9E8BB0234048BCEEE226 /* Shared.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
@@ -292,7 +289,6 @@
 		};
 		57C14EFDAF1318DFA768F14B /* Debug configuration for PBXNativeTarget "FreesoundKitTests" */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 1AAB9E8BB0234048BCEEE226 /* Shared.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_IDENTITY = "Apple Development";
@@ -314,7 +310,6 @@
 		};
 		7F10DB866F779A37337002B1 /* Release configuration for PBXProject "FreesoundKit" */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 1AAB9E8BB0234048BCEEE226 /* Shared.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -371,7 +366,6 @@
 		};
 		8C3806A59E99BE61E933778B /* Release configuration for PBXNativeTarget "FreesoundKitTests" */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 1AAB9E8BB0234048BCEEE226 /* Shared.xcconfig */;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_IDENTITY = "Apple Development";
@@ -393,7 +387,6 @@
 		};
 		8C962CC50D2795CDE8DB2B00 /* Debug configuration for PBXNativeTarget "FreesoundKit" */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 1AAB9E8BB0234048BCEEE226 /* Shared.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
@@ -430,7 +423,6 @@
 		};
 		B774FF4738DE02060A8E976D /* Release configuration for PBXNativeTarget "FreesoundKitTester" */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 1AAB9E8BB0234048BCEEE226 /* Shared.xcconfig */;
 			buildSettings = {
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
@@ -449,7 +441,6 @@
 		};
 		EA205C8C5C1E7559B13F62E8 /* Debug configuration for PBXProject "FreesoundKit" */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 1AAB9E8BB0234048BCEEE226 /* Shared.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
