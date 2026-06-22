@@ -7,6 +7,20 @@
 
 import Foundation
 
+/// Encodes a list of tags into the Freesound API's space-delimited `tags` field.
+///
+/// The API uses spaces as the separator *between* tags and expects multi-word
+/// tags to be joined with dashes. Any whitespace *inside* a single tag is
+/// therefore converted to a dash — otherwise a tag like `"field recording"`
+/// would be silently split into two tags (`field`, `recording`) on the server.
+/// Empty or whitespace-only tags are dropped.
+func encodeTags(_ tags: [String]) -> String {
+  tags
+    .map { $0.split(whereSeparator: \.isWhitespace).joined(separator: "-") }
+    .filter { !$0.isEmpty }
+    .joined(separator: " ")
+}
+
 public struct SoundUploadRequest: Sendable {
   public var tags: [String]
   public var description: String
@@ -36,7 +50,7 @@ public struct SoundUploadRequest: Sendable {
 
   var asFormFields: [String: String] {
     var fields: [String: String] = [
-      "tags": tags.joined(separator: " "),
+      "tags": encodeTags(tags),
       "description": description,
       "license": license,
     ]
@@ -95,7 +109,7 @@ public struct SoundEditRequest: Sendable {
       fields["name"] = name
     }
     if let tags {
-      fields["tags"] = tags.joined(separator: " ")
+      fields["tags"] = encodeTags(tags)
     }
     if let description {
       fields["description"] = description
@@ -152,7 +166,7 @@ public struct SoundDescribeRequest: Sendable {
     var fields: [String: String] = [
       "upload_filename": uploadFilename,
       "bst_category": bstCategory,
-      "tags": tags.joined(separator: " "),
+      "tags": encodeTags(tags),
       "description": description,
       "license": license,
     ]

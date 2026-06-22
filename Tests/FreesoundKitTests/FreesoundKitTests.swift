@@ -218,7 +218,7 @@ import Testing
   let mockSession = MockHTTPClient { request in
     #expect(request.url?.path == "/apiv2/sounds/7/download")
     #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer oauth-token")
-    #expect(request.value(forHTTPHeaderField: "Accept") == "application/octet-stream")
+    #expect(request.value(forHTTPHeaderField: "Accept") == "*/*")
     return (audio, makeResponse())
   }
 
@@ -274,6 +274,46 @@ import Testing
       tags: ["test"], description: "A test clip", license: "Creative Commons 0")
   )
   #expect(response.id == 123)
+}
+
+@Test func uploadEscapesSpecialCharactersInFilename() async throws {
+  // A double-quote is legal in a filename on macOS/Linux; it must be escaped so
+  // it can't terminate the quoted-string `filename="..."` parameter.
+  let fileURL = FileManager.default.temporaryDirectory
+    .appendingPathComponent("a\"b-\(UUID().uuidString).wav")
+  let fileBytes = Data([0x52, 0x49, 0x46, 0x46])
+  try fileBytes.write(to: fileURL)
+  defer { try? FileManager.default.removeItem(at: fileURL) }
+
+  let mockSession = MockHTTPClient { request in
+    let bodyString = String(decoding: request.httpBody ?? Data(), as: UTF8.self)
+    #expect(bodyString.contains("filename=\"a\\\"b-"))
+    let responseJSON = #"{"id":1,"detail":"File successfully uploaded"}"#
+    return (Data(responseJSON.utf8), makeResponse(status: 201))
+  }
+
+  let client = FreesoundClient(authentication: .oauthToken("oauth-token"), session: mockSession)
+  _ = try await client.uploadSound(
+    fileURL: fileURL,
+    request: SoundUploadRequest(
+      tags: ["test"], description: "A test clip", license: "Creative Commons 0"))
+}
+
+@Test func multiWordTagsJoinWithDashesAndDoNotSplit() async throws {
+  let mockSession = MockHTTPClient { request in
+    let body = String(data: request.httpBody ?? Data(), encoding: .utf8) ?? ""
+    // "field recording" is one tag (internal space -> dash); separate tags stay
+    // space-delimited (form-encoded as '+').
+    #expect(body.contains("tags=field-recording+nature"))
+    return (Data(#"{"detail":"ok"}"#.utf8), makeResponse())
+  }
+
+  let client = FreesoundClient(authentication: .oauthToken("oauth-token"), session: mockSession)
+  let response = try await client.editSound(
+    soundID: 7,
+    request: SoundEditRequest(tags: ["field recording", "nature"])
+  )
+  #expect(response.detail == "ok")
 }
 
 @Test func nonJSONErrorBodyFallsBackToUnknownDetail() async throws {

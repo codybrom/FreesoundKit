@@ -807,7 +807,11 @@ public final class FreesoundClient: Sendable {
     var request = URLRequest(url: url)
     request.httpMethod = method
     request.httpBody = body
-    request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
+    // Freesound's DRF endpoints don't advertise an `application/octet-stream`
+    // renderer, so requesting it fails content negotiation with HTTP 406. Send a
+    // permissive Accept header; the response is read as raw `Data` regardless of
+    // the returned Content-Type. See issue #1.
+    request.setValue("*/*", forHTTPHeaderField: "Accept")
     if let contentType {
       request.setValue(contentType, forHTTPHeaderField: "Content-Type")
     }
@@ -929,6 +933,18 @@ public final class FreesoundClient: Sendable {
     return component.addingPercentEncoding(withAllowedCharacters: allowed) ?? component
   }
 
+  /// Escapes a value for use inside a quoted-string header parameter such as
+  /// `filename="..."`. Backslash and double-quote are backslash-escaped per
+  /// RFC 2183; CR and LF are stripped so a crafted filename can't terminate the
+  /// `Content-Disposition` line and inject extra header fields.
+  private func quotedHeaderParameter(_ value: String) -> String {
+    value
+      .replacingOccurrences(of: "\\", with: "\\\\")
+      .replacingOccurrences(of: "\"", with: "\\\"")
+      .replacingOccurrences(of: "\r", with: "")
+      .replacingOccurrences(of: "\n", with: "")
+  }
+
   private func multipartBody(
     fields: [String: String],
     fileFieldName: String,
@@ -948,7 +964,7 @@ public final class FreesoundClient: Sendable {
 
     body.append("--\(boundary)\r\n".data(using: .utf8)!)
     body.append(
-      "Content-Disposition: form-data; name=\"\(fileFieldName)\"; filename=\"\(fileName)\"\r\n"
+      "Content-Disposition: form-data; name=\"\(fileFieldName)\"; filename=\"\(quotedHeaderParameter(fileName))\"\r\n"
         .data(using: .utf8)!)
     body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
     body.append(fileData)
