@@ -99,6 +99,7 @@ public struct Sound: Decodable, Sendable, Equatable, Hashable, Identifiable {
   public let wasRemixed: Bool?
   public let isExplicit: Bool?
   public let pack: URL?
+  public let packName: String?
   public let download: URL?
   public let bookmark: URL?
   public let previews: SoundPreviews?
@@ -145,6 +146,7 @@ public struct Sound: Decodable, Sendable, Equatable, Hashable, Identifiable {
     case wasRemixed = "was_remixed"
     case isExplicit = "is_explicit"
     case pack
+    case packName = "pack_name"
     case download
     case bookmark
     case previews
@@ -190,6 +192,7 @@ public struct Sound: Decodable, Sendable, Equatable, Hashable, Identifiable {
     wasRemixed = try container.decodeIfPresent(Bool.self, forKey: .wasRemixed)
     isExplicit = try container.decodeIfPresent(Bool.self, forKey: .isExplicit)
     pack = try container.decodeIfPresent(URL.self, forKey: .pack)
+    packName = try container.decodeIfPresent(String.self, forKey: .packName)
     download = try container.decodeIfPresent(URL.self, forKey: .download)
     bookmark = try container.decodeIfPresent(URL.self, forKey: .bookmark)
     previews = try container.decodeIfPresent(SoundPreviews.self, forKey: .previews)
@@ -236,6 +239,7 @@ public struct Sound: Decodable, Sendable, Equatable, Hashable, Identifiable {
     wasRemixed: Bool? = nil,
     isExplicit: Bool? = nil,
     pack: URL? = nil,
+    packName: String? = nil,
     download: URL? = nil,
     bookmark: URL? = nil,
     previews: SoundPreviews? = nil,
@@ -278,6 +282,7 @@ public struct Sound: Decodable, Sendable, Equatable, Hashable, Identifiable {
     self.wasRemixed = wasRemixed
     self.isExplicit = isExplicit
     self.pack = pack
+    self.packName = packName
     self.download = download
     self.bookmark = bookmark
     self.previews = previews
@@ -334,6 +339,15 @@ public enum SoundPreviewFormat: Sendable, Equatable, Hashable, CaseIterable {
   case lqOGG
 }
 
+/// A similarity space for content-based search via the `similar_to` parameter
+/// of ``FreesoundClient/similaritySearch(toSoundID:space:parameters:)``.
+public enum SimilaritySpace: String, Sendable, Equatable, Hashable, CaseIterable {
+  /// LAION-CLAP embeddings (512-dimensional) — acoustic and semantic similarity.
+  case laionClap = "laion_clap"
+  /// Essentia FreesoundExtractor low-level features (100-dimensional).
+  case freesoundClassic = "freesound_classic"
+}
+
 public struct SoundImages: Decodable, Sendable, Equatable, Hashable {
   public let waveformL: URL?
   public let waveformM: URL?
@@ -369,6 +383,59 @@ public struct SoundAnalysis: Decodable, Sendable, Equatable, Hashable {
 
   public init(descriptors: SoundDescriptors = SoundDescriptors()) {
     self.descriptors = descriptors
+  }
+}
+
+/// A single BirdNET species detection from the `birdnet_detections` analysis field.
+public struct BirdNetDetection: Decodable, Sendable, Equatable, Hashable {
+  public let commonName: String?
+  public let scientificName: String?
+  public let startTime: Double?
+  public let endTime: Double?
+  public let confidence: Double?
+
+  enum CodingKeys: String, CodingKey {
+    case commonName = "common_name"
+    case scientificName = "scientific_name"
+    case startTime = "start_time"
+    case endTime = "end_time"
+    case confidence
+  }
+
+  public init(
+    commonName: String? = nil, scientificName: String? = nil,
+    startTime: Double? = nil, endTime: Double? = nil, confidence: Double? = nil
+  ) {
+    self.commonName = commonName
+    self.scientificName = scientificName
+    self.startTime = startTime
+    self.endTime = endTime
+    self.confidence = confidence
+  }
+}
+
+/// A single FSD-SINet sound-event detection from the `fsdsinet_detections` analysis field.
+public struct FSDSINetDetection: Decodable, Sendable, Equatable, Hashable {
+  public let name: String?
+  public let startTime: Double?
+  public let endTime: Double?
+  public let confidence: Double?
+
+  enum CodingKeys: String, CodingKey {
+    case name
+    case startTime = "start_time"
+    case endTime = "end_time"
+    case confidence
+  }
+
+  public init(
+    name: String? = nil, startTime: Double? = nil, endTime: Double? = nil,
+    confidence: Double? = nil
+  ) {
+    self.name = name
+    self.startTime = startTime
+    self.endTime = endTime
+    self.confidence = confidence
   }
 }
 
@@ -432,6 +499,19 @@ public struct SoundDescriptors: Decodable, Sendable, Equatable, Hashable {
   public let tristimulus: [Double]?
   public let warmth: Double?
   public let zeroCrossingRate: Double?
+  // Broad Sound Taxonomy and newer analyzer outputs (AI classifiers, embeddings).
+  public let category: String?
+  public let subcategory: String?
+  public let hasAudioProblems: Bool?
+  public let birdnetDetectedClass: [String]?
+  public let birdnetDetections: [BirdNetDetection]?
+  public let birdnetDetectionsCount: Int?
+  public let fsdsinetDetectedClass: [String]?
+  public let fsdsinetDetections: [FSDSINetDetection]?
+  public let fsdsinetDetectionsCount: Int?
+  public let freesoundClassic: [Double]?
+  public let freesoundClassicV1: [Double]?
+  public let laionClap: [Double]?
 
   enum CodingKeys: String, CodingKey {
     case amplitudePeakRatio = "amplitude_peak_ratio"
@@ -493,6 +573,18 @@ public struct SoundDescriptors: Decodable, Sendable, Equatable, Hashable {
     case tristimulus
     case warmth
     case zeroCrossingRate = "zero_crossing_rate"
+    case category
+    case subcategory
+    case hasAudioProblems = "has_audio_problems"
+    case birdnetDetectedClass = "birdnet_detected_class"
+    case birdnetDetections = "birdnet_detections"
+    case birdnetDetectionsCount = "birdnet_detections_count"
+    case fsdsinetDetectedClass = "fsdsinet_detected_class"
+    case fsdsinetDetections = "fsdsinet_detections"
+    case fsdsinetDetectionsCount = "fsdsinet_detections_count"
+    case freesoundClassic = "freesound_classic"
+    case freesoundClassicV1 = "freesound_classic_v1"
+    case laionClap = "laion_clap"
   }
 
   /// Memberwise initializer with every descriptor defaulting to `nil`. Useful
@@ -556,7 +648,19 @@ public struct SoundDescriptors: Decodable, Sendable, Equatable, Hashable {
     tonalityConfidence: Double? = nil,
     tristimulus: [Double]? = nil,
     warmth: Double? = nil,
-    zeroCrossingRate: Double? = nil
+    zeroCrossingRate: Double? = nil,
+    category: String? = nil,
+    subcategory: String? = nil,
+    hasAudioProblems: Bool? = nil,
+    birdnetDetectedClass: [String]? = nil,
+    birdnetDetections: [BirdNetDetection]? = nil,
+    birdnetDetectionsCount: Int? = nil,
+    fsdsinetDetectedClass: [String]? = nil,
+    fsdsinetDetections: [FSDSINetDetection]? = nil,
+    fsdsinetDetectionsCount: Int? = nil,
+    freesoundClassic: [Double]? = nil,
+    freesoundClassicV1: [Double]? = nil,
+    laionClap: [Double]? = nil
   ) {
     self.amplitudePeakRatio = amplitudePeakRatio
     self.beatCount = beatCount
@@ -617,6 +721,18 @@ public struct SoundDescriptors: Decodable, Sendable, Equatable, Hashable {
     self.tristimulus = tristimulus
     self.warmth = warmth
     self.zeroCrossingRate = zeroCrossingRate
+    self.category = category
+    self.subcategory = subcategory
+    self.hasAudioProblems = hasAudioProblems
+    self.birdnetDetectedClass = birdnetDetectedClass
+    self.birdnetDetections = birdnetDetections
+    self.birdnetDetectionsCount = birdnetDetectionsCount
+    self.fsdsinetDetectedClass = fsdsinetDetectedClass
+    self.fsdsinetDetections = fsdsinetDetections
+    self.fsdsinetDetectionsCount = fsdsinetDetectionsCount
+    self.freesoundClassic = freesoundClassic
+    self.freesoundClassicV1 = freesoundClassicV1
+    self.laionClap = laionClap
   }
 }
 
@@ -645,18 +761,61 @@ public struct Comment: Decodable, Sendable, Equatable, Hashable {
   }
 }
 
+extension KeyedDecodingContainer {
+  /// Decodes an optional `URL` from a field the Freesound API may return as an
+  /// empty string. Several user-profile serializers emit `""` (not `null`) for
+  /// unset URL-ish fields such as `home_page`, which would otherwise throw a
+  /// type mismatch and fail the whole decode. Missing, null, empty, or
+  /// unparseable values all decode to `nil`.
+  func decodeLenientURL(forKey key: Key) throws -> URL? {
+    guard let string = try decodeIfPresent(String.self, forKey: key), !string.isEmpty
+    else { return nil }
+    return URL(string: string)
+  }
+}
+
+/// The avatar image URLs returned by the Freesound user serializer. The API
+/// sends `avatar` as an object with three sizes; every field is `nil` when the
+/// user has no avatar (the object is still present, with each value `null`).
+public struct Avatar: Decodable, Sendable, Equatable, Hashable {
+  public let small: URL?
+  public let medium: URL?
+  public let large: URL?
+
+  enum CodingKeys: String, CodingKey {
+    case small
+    case medium
+    case large
+  }
+
+  public init(small: URL? = nil, medium: URL? = nil, large: URL? = nil) {
+    self.small = small
+    self.medium = medium
+    self.large = large
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    small = try container.decodeLenientURL(forKey: .small)
+    medium = try container.decodeLenientURL(forKey: .medium)
+    large = try container.decodeLenientURL(forKey: .large)
+  }
+}
+
 public struct User: Decodable, Sendable, Equatable, Hashable, Identifiable {
   public let username: String
   public let url: URL?
   public let about: String?
   public let homepage: URL?
-  public let avatar: URL?
+  public let avatar: Avatar?
   public let dateJoined: String?
   public let numSounds: Int?
   public let numPacks: Int?
   public let numPosts: Int?
   public let sounds: URL?
   public let packs: URL?
+  public let numComments: Int?
+  public let aiPreference: String?
 
   /// The user's stable identity, their ``username``.
   public var id: String { username }
@@ -667,7 +826,7 @@ public struct User: Decodable, Sendable, Equatable, Hashable, Identifiable {
     case username
     case url
     case about
-    case homepage
+    case homepage = "home_page"
     case avatar
     case dateJoined = "date_joined"
     case numSounds = "num_sounds"
@@ -675,6 +834,8 @@ public struct User: Decodable, Sendable, Equatable, Hashable, Identifiable {
     case numPosts = "num_posts"
     case sounds
     case packs
+    case numComments = "num_comments"
+    case aiPreference = "ai_preference"
   }
 
   public init(
@@ -682,13 +843,15 @@ public struct User: Decodable, Sendable, Equatable, Hashable, Identifiable {
     url: URL? = nil,
     about: String? = nil,
     homepage: URL? = nil,
-    avatar: URL? = nil,
+    avatar: Avatar? = nil,
     dateJoined: String? = nil,
     numSounds: Int? = nil,
     numPacks: Int? = nil,
     numPosts: Int? = nil,
     sounds: URL? = nil,
-    packs: URL? = nil
+    packs: URL? = nil,
+    numComments: Int? = nil,
+    aiPreference: String? = nil
   ) {
     self.username = username
     self.url = url
@@ -701,6 +864,25 @@ public struct User: Decodable, Sendable, Equatable, Hashable, Identifiable {
     self.numPosts = numPosts
     self.sounds = sounds
     self.packs = packs
+    self.numComments = numComments
+    self.aiPreference = aiPreference
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    username = try container.decode(String.self, forKey: .username)
+    url = try container.decodeLenientURL(forKey: .url)
+    about = try container.decodeIfPresent(String.self, forKey: .about)
+    homepage = try container.decodeLenientURL(forKey: .homepage)
+    avatar = try container.decodeIfPresent(Avatar.self, forKey: .avatar)
+    dateJoined = try container.decodeIfPresent(String.self, forKey: .dateJoined)
+    numSounds = try container.decodeIfPresent(Int.self, forKey: .numSounds)
+    numPacks = try container.decodeIfPresent(Int.self, forKey: .numPacks)
+    numPosts = try container.decodeIfPresent(Int.self, forKey: .numPosts)
+    sounds = try container.decodeLenientURL(forKey: .sounds)
+    packs = try container.decodeLenientURL(forKey: .packs)
+    numComments = try container.decodeIfPresent(Int.self, forKey: .numComments)
+    aiPreference = try container.decodeIfPresent(String.self, forKey: .aiPreference)
   }
 }
 
@@ -714,6 +896,7 @@ public struct Pack: Decodable, Sendable, Equatable, Hashable, Identifiable {
   public let numSounds: Int?
   public let sounds: URL?
   public let download: URL?
+  public let numDownloads: Int?
 
   /// ``created`` parsed as a `Date`, or `nil` if absent or unrecognized.
   public var createdDate: Date? { freesoundDate(created) }
@@ -728,6 +911,7 @@ public struct Pack: Decodable, Sendable, Equatable, Hashable, Identifiable {
     case numSounds = "num_sounds"
     case sounds
     case download
+    case numDownloads = "num_downloads"
   }
 
   public init(
@@ -739,7 +923,8 @@ public struct Pack: Decodable, Sendable, Equatable, Hashable, Identifiable {
     created: String? = nil,
     numSounds: Int? = nil,
     sounds: URL? = nil,
-    download: URL? = nil
+    download: URL? = nil,
+    numDownloads: Int? = nil
   ) {
     self.id = id
     self.url = url
@@ -750,6 +935,7 @@ public struct Pack: Decodable, Sendable, Equatable, Hashable, Identifiable {
     self.numSounds = numSounds
     self.sounds = sounds
     self.download = download
+    self.numDownloads = numDownloads
   }
 }
 
@@ -758,17 +944,43 @@ public struct Me: Decodable, Sendable, Equatable, Hashable, Identifiable {
   public let url: URL?
   public let about: String?
   public let homepage: URL?
-  public let avatar: URL?
+  public let avatar: Avatar?
+  public let dateJoined: String?
+  public let numSounds: Int?
+  public let numPacks: Int?
+  public let numPosts: Int?
+  public let numComments: Int?
+  public let sounds: URL?
+  public let packs: URL?
+  public let bookmarkCategories: URL?
+  /// The authenticated user's email. Only the OAuth-authenticated `/me/`
+  /// endpoint returns this; it is absent on the public user-profile endpoint.
+  public let email: String?
+  public let uniqueID: Int?
+  public let aiPreference: String?
 
   /// The user's stable identity, their ``username``.
   public var id: String { username }
+  /// ``dateJoined`` parsed as a `Date`, or `nil` if absent or unrecognized.
+  public var dateJoinedDate: Date? { freesoundDate(dateJoined) }
 
   enum CodingKeys: String, CodingKey {
     case username
     case url
     case about
-    case homepage
+    case homepage = "home_page"
     case avatar
+    case dateJoined = "date_joined"
+    case numSounds = "num_sounds"
+    case numPacks = "num_packs"
+    case numPosts = "num_posts"
+    case numComments = "num_comments"
+    case sounds
+    case packs
+    case bookmarkCategories = "bookmark_categories"
+    case email
+    case uniqueID = "unique_id"
+    case aiPreference = "ai_preference"
   }
 
   public init(
@@ -776,13 +988,55 @@ public struct Me: Decodable, Sendable, Equatable, Hashable, Identifiable {
     url: URL? = nil,
     about: String? = nil,
     homepage: URL? = nil,
-    avatar: URL? = nil
+    avatar: Avatar? = nil,
+    dateJoined: String? = nil,
+    numSounds: Int? = nil,
+    numPacks: Int? = nil,
+    numPosts: Int? = nil,
+    numComments: Int? = nil,
+    sounds: URL? = nil,
+    packs: URL? = nil,
+    bookmarkCategories: URL? = nil,
+    email: String? = nil,
+    uniqueID: Int? = nil,
+    aiPreference: String? = nil
   ) {
     self.username = username
     self.url = url
     self.about = about
     self.homepage = homepage
     self.avatar = avatar
+    self.dateJoined = dateJoined
+    self.numSounds = numSounds
+    self.numPacks = numPacks
+    self.numPosts = numPosts
+    self.numComments = numComments
+    self.sounds = sounds
+    self.packs = packs
+    self.bookmarkCategories = bookmarkCategories
+    self.email = email
+    self.uniqueID = uniqueID
+    self.aiPreference = aiPreference
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    username = try container.decode(String.self, forKey: .username)
+    url = try container.decodeLenientURL(forKey: .url)
+    about = try container.decodeIfPresent(String.self, forKey: .about)
+    homepage = try container.decodeLenientURL(forKey: .homepage)
+    avatar = try container.decodeIfPresent(Avatar.self, forKey: .avatar)
+    dateJoined = try container.decodeIfPresent(String.self, forKey: .dateJoined)
+    numSounds = try container.decodeIfPresent(Int.self, forKey: .numSounds)
+    numPacks = try container.decodeIfPresent(Int.self, forKey: .numPacks)
+    numPosts = try container.decodeIfPresent(Int.self, forKey: .numPosts)
+    numComments = try container.decodeIfPresent(Int.self, forKey: .numComments)
+    sounds = try container.decodeLenientURL(forKey: .sounds)
+    packs = try container.decodeLenientURL(forKey: .packs)
+    bookmarkCategories = try container.decodeLenientURL(forKey: .bookmarkCategories)
+    email = try container.decodeIfPresent(String.self, forKey: .email)
+    uniqueID = try container.decodeIfPresent(Int.self, forKey: .uniqueID)
+    aiPreference = try container.decodeIfPresent(String.self, forKey: .aiPreference)
   }
 }
 

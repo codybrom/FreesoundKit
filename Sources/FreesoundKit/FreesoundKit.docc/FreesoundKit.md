@@ -85,6 +85,11 @@ let page = try await client.withRateLimitRetry {
 ### Searching for sounds
 
 - ``FreesoundClient/textSearch(query:parameters:)``
+- ``FreesoundClient/similaritySearch(toSoundID:space:parameters:)``
+- ``SimilaritySpace``
+
+### Deprecated search
+
 - ``FreesoundClient/contentSearch(parameters:)``
 - ``FreesoundClient/combinedSearch(parameters:)``
 - ``FreesoundClient/moreResults(of:)``
@@ -156,12 +161,15 @@ let page = try await client.withRateLimitRetry {
 
 - ``Sound``
 - ``SoundDescriptors``
+- ``BirdNetDetection``
+- ``FSDSINetDetection``
 - ``SoundPreviews``
 - ``SoundImages``
 - ``SoundAnalysis``
 - ``Comment``
 - ``User``
 - ``Me``
+- ``Avatar``
 - ``Pack``
 - ``BookmarkCategory``
 - ``PendingUploads``

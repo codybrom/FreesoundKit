@@ -137,36 +137,78 @@ public final class FreesoundClient: Sendable {
     return try await send(path: "/search/text/", query: allParameters)
   }
 
-  /// Searches sounds by audio content (descriptor target/filter).
-  /// - Parameter parameters: Query parameters such as `target` and
-  ///   `descriptors_filter`. `nil` values are omitted.
+  /// Searches for sounds acoustically similar to a reference sound, using the
+  /// search endpoint's `similar_to` parameter. This is the supported
+  /// replacement for the removed content-search endpoint.
+  /// - Parameters:
+  ///   - soundID: The reference sound to find similar sounds to.
+  ///   - space: The similarity space to search in, or `nil` for the server default.
+  ///   - parameters: Additional query parameters (`filter`, `sort`, `fields`,
+  ///     `page`, `page_size`). `nil` values are omitted.
   /// - Returns: A page of matching ``Sound`` results.
   /// - Throws: ``FreesoundError`` if the request fails.
+  public func similaritySearch(
+    toSoundID soundID: Int,
+    space: SimilaritySpace? = nil,
+    parameters: [String: String?] = [:]
+  ) async throws -> PagedResponse<Sound> {
+    var allParameters = parameters
+    allParameters["similar_to"] = String(soundID)
+    if let space {
+      allParameters["similar_space"] = space.rawValue
+    }
+    return try await send(path: "/search/text/", query: allParameters)
+  }
+
+  /// Searches sounds by audio content.
+  ///
+  /// - Warning: Freesound removed the `/apiv2/search/content/` endpoint, so this
+  ///   method now always throws. Use ``similaritySearch(toSoundID:space:parameters:)``,
+  ///   or pass `similar_to`/`filter`/`sort` to ``textSearch(query:parameters:)``.
+  @available(
+    *, deprecated,
+    message:
+      "The /apiv2/search/content/ endpoint was removed by Freesound. Use similaritySearch(toSoundID:space:parameters:) or pass similar_to/filter/sort to textSearch(query:parameters:)."
+  )
   public func contentSearch(parameters: [String: String?] = [:]) async throws -> PagedResponse<
     Sound
   > {
-    try await send(path: "/search/content/", query: parameters)
+    throw FreesoundError.apiError(
+      statusCode: 410,
+      detail:
+        "The /apiv2/search/content/ endpoint was removed by Freesound. Use similaritySearch(toSoundID:space:parameters:) or pass similar_to/filter/sort to textSearch(query:parameters:)."
+    )
   }
 
   /// Searches sounds using both text and audio-content criteria.
   ///
-  /// Unlike the other search endpoints, combined search does not report a
-  /// total count or page numbers; fetch further results with
-  /// ``moreResults(of:)``.
-  /// - Parameter parameters: Combined text and content query parameters.
-  ///   `nil` values are omitted.
-  /// - Returns: The matching ``Sound`` results and an optional `more` link.
-  /// - Throws: ``FreesoundError`` if the request fails.
+  /// - Warning: Freesound removed the `/apiv2/search/combined/` endpoint, so this
+  ///   method now always throws. Use ``textSearch(query:parameters:)`` with
+  ///   `similar_to`/`filter`/`sort` parameters and paginate with ``nextPage(of:)``.
+  @available(
+    *, deprecated,
+    message:
+      "The /apiv2/search/combined/ endpoint was removed by Freesound. Use textSearch(query:parameters:) with similar_to/filter/sort and paginate with nextPage(of:)."
+  )
   public func combinedSearch(parameters: [String: String?] = [:]) async throws
     -> CombinedSearchResponse
   {
-    try await send(path: "/search/combined/", query: parameters)
+    throw FreesoundError.apiError(
+      statusCode: 410,
+      detail:
+        "The /apiv2/search/combined/ endpoint was removed by Freesound. Use textSearch(query:parameters:) with similar_to/filter/sort and paginate with nextPage(of:)."
+    )
   }
 
   /// Fetches the next batch of combined-search results.
-  /// - Parameter response: A previous combined-search response.
-  /// - Returns: The next batch, or `nil` if `response` has no `more` link.
-  /// - Throws: ``FreesoundError`` if the request fails.
+  ///
+  /// - Warning: Combined search was removed by Freesound. Paginate
+  ///   ``textSearch(query:parameters:)`` results with ``nextPage(of:)`` instead.
+  @available(
+    *, deprecated,
+    message:
+      "Combined search was removed by Freesound. Paginate textSearch(query:parameters:) results with nextPage(of:)."
+  )
   public func moreResults(of response: CombinedSearchResponse) async throws
     -> CombinedSearchResponse?
   {

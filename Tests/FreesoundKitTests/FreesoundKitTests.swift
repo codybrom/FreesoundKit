@@ -62,6 +62,132 @@ import Testing
   #expect(me.username == "alice")
 }
 
+@Test func meDecodesAvatarObjectAndProfileFields() async throws {
+  let mockSession = MockHTTPClient { _ in
+    let responseJSON = """
+      {
+        "url": "https://freesound.org/people/blankie.rest/",
+        "username": "blankie.rest",
+        "about": "hello",
+        "home_page": "https://blankie.rest",
+        "avatar": {
+          "small": "https://freesound.org/data/avatars/15820/15820073_S.jpg",
+          "medium": "https://freesound.org/data/avatars/15820/15820073_M.jpg",
+          "large": "https://freesound.org/data/avatars/15820/15820073_L.jpg"
+        },
+        "date_joined": "2024-03-21T23:48:08.384002+01:00",
+        "num_sounds": 1,
+        "sounds": "https://freesound.org/apiv2/users/blankie.rest/sounds/",
+        "num_packs": 0,
+        "packs": "https://freesound.org/apiv2/users/blankie.rest/packs/",
+        "num_posts": 0,
+        "num_comments": 1,
+        "ai_preference": "freesound-cc-recommendation",
+        "email": "user@example.com",
+        "unique_id": 15820073,
+        "bookmark_categories": "https://freesound.org/apiv2/me/bookmark_categories/"
+      }
+      """
+    return (Data(responseJSON.utf8), makeResponse())
+  }
+
+  let client = FreesoundClient(authentication: .oauthToken("oauth-token"), session: mockSession)
+  let me = try await client.me()
+  #expect(me.username == "blankie.rest")
+  #expect(me.homepage == URL(string: "https://blankie.rest"))
+  #expect(
+    me.avatar?.large
+      == URL(string: "https://freesound.org/data/avatars/15820/15820073_L.jpg"))
+  #expect(me.email == "user@example.com")
+  #expect(me.uniqueID == 15_820_073)
+  #expect(me.numComments == 1)
+  #expect(
+    me.bookmarkCategories
+      == URL(string: "https://freesound.org/apiv2/me/bookmark_categories/"))
+  #expect(me.dateJoined == "2024-03-21T23:48:08.384002+01:00")
+}
+
+@Test func decodesFieldsConfirmedAgainstLiveAPI() throws {
+  // Fields present in real API responses but previously unmodeled (verified
+  // against the live API and the Freesound server serializers).
+  let soundJSON = #"""
+    {"id": 14854, "name": "Nightingale song.wav", "pack": "https://freesound.org/apiv2/packs/455/", "pack_name": "nightingales", "samplerate": 48000.0}
+    """#
+  let sound = try JSONDecoder().decode(Sound.self, from: Data(soundJSON.utf8))
+  #expect(sound.packName == "nightingales")
+  #expect(sound.samplerate == 48000)  // API returns 48000.0 (float) for an Int field
+
+  let packJSON = #"{"id": 455, "name": "nightingales", "num_sounds": 12, "num_downloads": 3456}"#
+  let pack = try JSONDecoder().decode(Pack.self, from: Data(packJSON.utf8))
+  #expect(pack.numDownloads == 3456)
+
+  let userJSON = #"""
+    {"username": "reinsamba", "home_page": "", "num_comments": 54, "ai_preference": "freesound-cc-recommendation",
+     "avatar": {"small": "https://freesound.org/data/avatars/18/18799_S.jpg", "medium": null, "large": null}}
+    """#
+  let user = try JSONDecoder().decode(User.self, from: Data(userJSON.utf8))
+  #expect(user.homepage == nil)  // "" -> nil
+  #expect(user.numComments == 54)
+  #expect(user.aiPreference == "freesound-cc-recommendation")
+  #expect(user.avatar?.small != nil)
+  #expect(user.avatar?.medium == nil)
+}
+
+@Test func soundAnalysisDecodesNewDescriptors() throws {
+  // Shapes taken verbatim from a live /sounds/<id>/analysis/ response.
+  let json = #"""
+    {
+      "category": "Sound effects", "subcategory": "Animals",
+      "tonality": "B major", "warmth": null, "zero_crossing_rate": 0.139,
+      "has_audio_problems": false, "tristimulus": [0.672, 0.261, 0.061],
+      "birdnet_detected_class": ["Common Nightingale"],
+      "birdnet_detections": [
+        {"start_time": 0.0, "end_time": 27.0, "confidence": 1.0,
+         "common_name": "Common Nightingale", "scientific_name": "Luscinia megarhynchos"}
+      ],
+      "birdnet_detections_count": 12,
+      "fsdsinet_detected_class": ["Animal"],
+      "fsdsinet_detections": [{"name": "Animal", "start_time": 0.0, "end_time": 9.5, "confidence": 0.91}],
+      "fsdsinet_detections_count": 134,
+      "freesound_classic": [0.81, -0.1], "laion_clap": [-0.016, -0.001]
+    }
+    """#
+  let d = try JSONDecoder().decode(SoundAnalysis.self, from: Data(json.utf8)).descriptors
+  #expect(d.category == "Sound effects")
+  #expect(d.hasAudioProblems == false)
+  #expect(d.warmth == nil)
+  #expect(d.birdnetDetectionsCount == 12)
+  #expect(d.birdnetDetections?.first?.commonName == "Common Nightingale")
+  #expect(d.birdnetDetections?.first?.scientificName == "Luscinia megarhynchos")
+  #expect(d.fsdsinetDetections?.first?.name == "Animal")
+  #expect(d.fsdsinetDetections?.first?.confidence == 0.91)
+  #expect(d.laionClap?.count == 2)
+}
+
+@Test func meToleratesEmptyHomePageAndAvatarlessAccount() async throws {
+  // The serializer emits "" (not null) for an unset home_page, and an avatar
+  // object whose three sizes are all null when the user has no avatar. Neither
+  // shape should fail the decode (previously both threw a typeMismatch).
+  let mockSession = MockHTTPClient { _ in
+    let responseJSON = """
+      {
+        "username": "nobody",
+        "url": "https://freesound.org/people/nobody/",
+        "about": "",
+        "home_page": "",
+        "avatar": {"small": null, "medium": null, "large": null}
+      }
+      """
+    return (Data(responseJSON.utf8), makeResponse())
+  }
+
+  let client = FreesoundClient(authentication: .oauthToken("oauth-token"), session: mockSession)
+  let me = try await client.me()
+  #expect(me.homepage == nil)
+  #expect(me.avatar != nil)
+  #expect(me.avatar?.small == nil)
+}
+
 @Test func buildsAuthorizationURL() throws {
   let client = FreesoundClient(session: MockHTTPClient.unused)
   let url = try client.oauthAuthorizationURL(
@@ -405,28 +531,36 @@ import Testing
   #expect(backToFirst?.results.first?.id == 1)
 }
 
-@Test func combinedSearchFollowsMoreLink() async throws {
+@Test func similaritySearchUsesSimilarToParameter() async throws {
   let mockSession = MockHTTPClient { request in
-    #expect(request.url?.path == "/apiv2/search/combined")
-    let responseJSON: String
-    if request.url?.query?.contains("more=more_token") == true {
-      responseJSON = #"{"results":[{"id":2}],"more":null}"#
-    } else {
-      responseJSON =
-        #"{"results":[{"id":1}],"more":"/apiv2/search/combined/?more=more_token"}"#
-    }
-    return (Data(responseJSON.utf8), makeResponse())
+    #expect(request.url?.path == "/apiv2/search/text")
+    let query = request.url?.query ?? ""
+    #expect(query.contains("similar_to=14854"))
+    #expect(query.contains("similar_space=laion_clap"))
+    return (
+      Data(#"{"count":1,"next":null,"previous":null,"results":[{"id":99}]}"#.utf8), makeResponse()
+    )
   }
 
   let client = FreesoundClient(authentication: .apiKey("k"), session: mockSession)
-  let first = try await client.combinedSearch(parameters: ["target": "rhythm.bpm:120"])
-  #expect(first.results.first?.id == 1)
+  let page = try await client.similaritySearch(toSoundID: 14854, space: .laionClap)
+  #expect(page.results.first?.id == 99)
+}
 
-  let second = try await client.moreResults(of: first)
-  #expect(second?.results.first?.id == 2)
-
-  let third = try await client.moreResults(of: second!)
-  #expect(third == nil)
+// Marked deprecated so it can exercise the deprecated methods without warnings.
+@available(*, deprecated)
+@Test func removedSearchEndpointsThrowClearError() async throws {
+  let client = FreesoundClient(authentication: .apiKey("k"), session: MockHTTPClient.unused)
+  do {
+    _ = try await client.contentSearch(parameters: ["target": "x"])
+    Issue.record("contentSearch should throw")
+  } catch is FreesoundError {
+  }
+  do {
+    _ = try await client.combinedSearch(parameters: ["target": "x"])
+    Issue.record("combinedSearch should throw")
+  } catch is FreesoundError {
+  }
 }
 
 @Test func downloadPreviewFetchesPreviewWithoutAuth() async throws {
