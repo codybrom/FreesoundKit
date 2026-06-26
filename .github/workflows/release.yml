@@ -27,10 +27,28 @@ jobs:
           chmod +x dist/freesound-tester-macos
           shasum -a 256 dist/freesound-tester-macos > dist/checksums.txt
 
+      - name: Extract release notes from changelog
+        id: notes
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v ver="$version" '
+            $0 ~ "^## \\[" ver "\\]" { capture = 1; next }
+            capture && (/^## / || /^\[[^]]+\]: /) { exit }
+            capture { print }
+          ' CHANGELOG.md > release-notes.md
+          if grep -q "[^[:space:]]" release-notes.md; then
+            echo "Found changelog entry for $version"
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No changelog entry for $version; falling back to auto-generated notes"
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v3
         with:
           files: |
             dist/freesound-tester-macos
             dist/checksums.txt
-          generate_release_notes: true
+          body_path: ${{ steps.notes.outputs.found == 'true' && 'release-notes.md' || '' }}
+          generate_release_notes: ${{ steps.notes.outputs.found != 'true' }}
