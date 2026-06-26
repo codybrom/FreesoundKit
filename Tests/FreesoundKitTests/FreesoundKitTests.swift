@@ -287,6 +287,31 @@ import Testing
   #expect(SoundSearchSort.allCases.count == 9)
 }
 
+@Test func groupedSearchDecodesPackGroupingAndNote() async throws {
+  let json = #"""
+    {"count":1,"next":null,"previous":null,"note":"Query was adjusted.",
+     "results":[{"id":7,"name":"kick","score":12.5,
+       "more_from_same_pack":"https://freesound.org/apiv2/search/text/?filter=pack_grouping:%2241_drums%22",
+       "n_from_same_pack":4,"distance_to_target":0.42}]}
+    """#
+  let mockSession = MockHTTPClient { _ in (Data(json.utf8), makeResponse()) }
+  let client = FreesoundClient(authentication: .apiKey("k"), session: mockSession)
+
+  let page = try await client.textSearch(query: "kick", parameters: ["group_by_pack": "1"])
+  #expect(page.note == "Query was adjusted.")
+  let sound = try #require(page.results.first)
+  #expect(sound.nFromSamePack == 4)
+  #expect(sound.distanceToTarget == 0.42)
+  #expect(sound.moreFromSamePack?.path == "/apiv2/search/text")
+
+  // The grouping fields survive a Codable round-trip and are absent on a plain sound.
+  let roundTripped = try JSONDecoder().decode(Sound.self, from: JSONEncoder().encode(sound))
+  #expect(roundTripped == sound)
+  let plain = try JSONDecoder().decode(Sound.self, from: Data(#"{"id":7}"#.utf8))
+  #expect(plain.nFromSamePack == nil)
+  #expect(plain.moreFromSamePack == nil)
+}
+
 @Test func soundLicenseRawValuesMatchAPIChoices() {
   // The server's LICENSE_CHOICES are an exact-match set, so the spellings matter.
   #expect(SoundLicense.attribution.rawValue == "Attribution")

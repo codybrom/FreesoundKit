@@ -12,12 +12,16 @@ public struct PagedResponse<Item: Decodable & Sendable>: Decodable, Sendable {
   public let next: URL?
   public let previous: URL?
   public let results: [Item]
+  /// An optional informational message from the search endpoint (for example
+  /// when the query was adjusted). Present only on some search responses.
+  public let note: String?
 
-  public init(count: Int?, next: URL?, previous: URL?, results: [Item]) {
+  public init(count: Int?, next: URL?, previous: URL?, results: [Item], note: String? = nil) {
     self.count = count
     self.next = next
     self.previous = previous
     self.results = results
+    self.note = note
   }
 }
 
@@ -144,6 +148,16 @@ public struct Sound: Codable, Sendable, Equatable, Hashable, Identifiable {
   /// ``FreesoundClient/textSearch(query:parameters:)`` and the similarity
   /// endpoints; `nil` for a sound fetched directly via ``FreesoundClient/sound(id:fields:)``.
   public let score: Double?
+  /// In grouped search (`group_by_pack=1`), a link to the other sounds in this
+  /// sound's pack, or `nil` when it isn't part of a multi-sound pack in the
+  /// results. Pairs with ``nFromSamePack``.
+  public let moreFromSamePack: URL?
+  /// In grouped search, the total number of result sounds from this sound's pack
+  /// (including this one). `nil` outside grouped search.
+  public let nFromSamePack: Int?
+  /// In similarity search (`similar_to`), the distance from the target sound —
+  /// smaller is more similar. `nil` for ordinary searches.
+  public let distanceToTarget: Double?
   public let descriptors: SoundDescriptors
 
   /// ``created`` parsed as a `Date`, or `nil` if absent or unrecognized.
@@ -192,6 +206,9 @@ public struct Sound: Codable, Sendable, Equatable, Hashable, Identifiable {
     case similarSounds = "similar_sounds"
     case analysisFiles = "analysis_files"
     case score
+    case moreFromSamePack = "more_from_same_pack"
+    case nFromSamePack = "n_from_same_pack"
+    case distanceToTarget = "distance_to_target"
   }
 
   public init(from decoder: Decoder) throws {
@@ -239,6 +256,9 @@ public struct Sound: Codable, Sendable, Equatable, Hashable, Identifiable {
     similarSounds = try container.decodeIfPresent(URL.self, forKey: .similarSounds)
     analysisFiles = try container.decodeIfPresent([String: URL].self, forKey: .analysisFiles)
     score = try container.decodeIfPresent(Double.self, forKey: .score)
+    moreFromSamePack = try container.decodeIfPresent(URL.self, forKey: .moreFromSamePack)
+    nFromSamePack = try container.decodeIfPresent(Int.self, forKey: .nFromSamePack)
+    distanceToTarget = try container.decodeIfPresent(Double.self, forKey: .distanceToTarget)
     descriptors = try SoundDescriptors(from: decoder)
   }
 
@@ -292,6 +312,9 @@ public struct Sound: Codable, Sendable, Equatable, Hashable, Identifiable {
     try container.encodeIfPresent(similarSounds, forKey: .similarSounds)
     try container.encodeIfPresent(analysisFiles, forKey: .analysisFiles)
     try container.encodeIfPresent(score, forKey: .score)
+    try container.encodeIfPresent(moreFromSamePack, forKey: .moreFromSamePack)
+    try container.encodeIfPresent(nFromSamePack, forKey: .nFromSamePack)
+    try container.encodeIfPresent(distanceToTarget, forKey: .distanceToTarget)
   }
 
   /// Memberwise initializer. Useful for building fixtures in tests and SwiftUI
@@ -339,6 +362,9 @@ public struct Sound: Codable, Sendable, Equatable, Hashable, Identifiable {
     similarSounds: URL? = nil,
     analysisFiles: [String: URL]? = nil,
     score: Double? = nil,
+    moreFromSamePack: URL? = nil,
+    nFromSamePack: Int? = nil,
+    distanceToTarget: Double? = nil,
     descriptors: SoundDescriptors = SoundDescriptors()
   ) {
     self.id = id
@@ -383,6 +409,9 @@ public struct Sound: Codable, Sendable, Equatable, Hashable, Identifiable {
     self.similarSounds = similarSounds
     self.analysisFiles = analysisFiles
     self.score = score
+    self.moreFromSamePack = moreFromSamePack
+    self.nFromSamePack = nFromSamePack
+    self.distanceToTarget = distanceToTarget
     self.descriptors = descriptors
   }
 }

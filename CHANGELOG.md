@@ -14,6 +14,7 @@ Audited the full client surface against the Freesound server source (`apiv2/urls
 - **`SoundSearchSort`** — a typed enum of the `sort` values accepted by `textSearch`. The API silently falls back to `score` on an unrecognized value, so these constants guard against typos (e.g. `downloads_desc`, not `num_downloads desc`).
 - **`FreesoundUsageMonitor`** — an opt-in `@MainActor @Observable` companion over the (still-`Sendable`) `FreesoundUsageTracker`. It re-snapshots on a timer (the rolling windows decay with wall-clock time) so SwiftUI views can observe `snapshot` directly, and only publishes when the snapshot actually changes so an idle meter doesn't wake SwiftUI every tick. The tracker itself is unchanged.
 - **`SoundLicense`** — a typed enum of the three `license` values the upload/describe/edit endpoints accept (e.g. `creativeCommons0` is `"Creative Commons 0"`, not `"CC0"`). The API validates the exact string, so a typo is a 400.
+- **Search pack-grouping and similarity fields.** `Sound` now decodes `moreFromSamePack`/`nFromSamePack` (present per result when searching with `group_by_pack=1`) and `distanceToTarget` (present with `similar_to`), and `PagedResponse` decodes the search-level `note`. All are optional and round-trip through `Codable`.
 
 ### Changed
 
