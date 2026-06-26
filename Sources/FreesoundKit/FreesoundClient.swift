@@ -273,21 +273,30 @@ public final class FreesoundClient: Sendable {
   }
 
   /// Fetches the audio analysis (descriptors) for a sound.
-  /// - Parameters:
-  ///   - id: The sound's identifier.
-  ///   - descriptors: A comma-separated list of descriptors to return, or `nil` for all.
-  ///   - normalized: Whether to return normalized descriptor values.
+  ///
+  /// The endpoint returns the full consolidated analysis — every available
+  /// descriptor plus the per-space similarity vectors.
+  /// - Parameter id: The sound's identifier.
   /// - Returns: The sound's ``SoundAnalysis``.
   /// - Throws: ``FreesoundError`` if the request fails.
+  public func soundAnalysis(id: Int) async throws -> SoundAnalysis {
+    try await send(path: "/sounds/\(id)/analysis/")
+  }
+
+  /// Fetches the audio analysis (descriptors) for a sound.
+  ///
+  /// - Warning: Freesound's analysis endpoint no longer reads `descriptors` or
+  ///   `normalized` — it always returns the full consolidated analysis — so
+  ///   those arguments are ignored. Use ``soundAnalysis(id:)``.
+  @available(
+    *, deprecated,
+    message:
+      "Freesound's analysis endpoint ignores `descriptors` and `normalized` and always returns the full analysis. Call soundAnalysis(id:)."
+  )
   public func soundAnalysis(id: Int, descriptors: String? = nil, normalized: Bool? = nil)
     async throws -> SoundAnalysis
   {
-    var query: [String: String?] = [:]
-    query["descriptors"] = descriptors
-    if let normalized {
-      query["normalized"] = normalized ? "1" : "0"
-    }
-    return try await send(path: "/sounds/\(id)/analysis/", query: query)
+    try await soundAnalysis(id: id)
   }
 
   /// Fetches sounds acoustically similar to a given sound.
@@ -1016,17 +1025,50 @@ public final class FreesoundClient: Sendable {
   }
 
   private func mapAPIError(response: HTTPURLResponse, data: Data) -> FreesoundError {
-    struct ErrorPayload: Decodable {
-      let detail: String?
-    }
-
-    let detail = (try? decoder.decode(ErrorPayload.self, from: data))?.detail ?? "Unknown error"
+    let detail = Self.errorDetail(from: data)
     if response.statusCode == 429 {
       let retryAfter = response.value(forHTTPHeaderField: "Retry-After")
         .flatMap(TimeInterval.init)
       return .rateLimited(retryAfter: retryAfter, detail: detail)
     }
     return .apiError(statusCode: response.statusCode, detail: detail)
+  }
+
+  /// Extracts a readable message from a Freesound error body. Most errors are
+  /// `{"detail": "..."}`, but the write endpoints return
+  /// `{"detail": {<field>: [<messages>]}}` for 400 validation failures (and DRF
+  /// can put the field map at the top level), so a plain string decode would
+  /// drop those. Falls back to the raw body, then a generic message.
+  static func errorDetail(from data: Data) -> String {
+    func rawBody() -> String {
+      let body = String(decoding: data, as: UTF8.self)
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      return body.isEmpty ? "Unknown error" : body
+    }
+    guard let json = try? JSONSerialization.jsonObject(with: data) else {
+      return rawBody()
+    }
+    let payload = (json as? [String: Any])?["detail"] ?? json
+    if let message = payload as? String {
+      return message
+    }
+    if let fieldErrors = payload as? [String: Any] {
+      let lines =
+        fieldErrors
+        .map { field, messages in "\(field): \(flatten(messages))" }
+        .sorted()
+      if !lines.isEmpty { return lines.joined(separator: "; ") }
+    }
+    return rawBody()
+  }
+
+  /// Renders one field's validation messages — usually a JSON array of strings —
+  /// as a single space-joined line.
+  private static func flatten(_ value: Any) -> String {
+    if let list = value as? [Any] {
+      return list.map { "\($0)" }.joined(separator: " ")
+    }
+    return "\(value)"
   }
 
   /// Resolves an API pagination link, which may be absolute (`next`-style)

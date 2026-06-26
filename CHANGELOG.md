@@ -21,9 +21,14 @@ Audited the full client surface against the Freesound server source (`apiv2/urls
 - Documented the geotag read/write format asymmetry: `Sound.geotag` is space-separated `"lat lon"`, but the upload/describe/edit endpoints require comma-separated `"lat,lon,zoom"` (`zoom` ≥ 11), so a read value can't be round-tripped into a request unchanged. The request structs' `geotag`/`license`/`tags` fields now document their server constraints.
 - Documented that `SoundEditRequest.bstCategory` is currently ignored by the Freesound edit endpoint (its request serializer omits the `bst_category` declaration); describe/upload accept it normally.
 
+### Fixed
+
+- **API error messages no longer collapse to "Unknown error."** The write endpoints return `{"detail": {<field>: [messages]}}` for 400 validation failures, but the error mapper only decoded a string `detail`, so those messages were lost. It now flattens field-error maps (e.g. `tags: You should add at least 3 tags.`) and falls back to the raw response body, reserving "Unknown error" for a genuinely empty body.
+
 ### Deprecated
 
 - **`bookmarkSound(soundID:name:category:)`** — the Freesound bookmark endpoint's request serializer reads only `category`, so the `name` argument was being silently dropped on the wire. Use `bookmarkSound(soundID:category:)`. The deprecated overload now forwards to it and no longer sends `name`.
+- **`soundAnalysis(id:descriptors:normalized:)`** — the analysis endpoint no longer reads `descriptors` or `normalized` (it always returns the full consolidated analysis), so those arguments were ignored. Use `soundAnalysis(id:)`; the deprecated overload forwards to it and sends no query.
 
 ## [1.2.0] - 2026-06-26
 

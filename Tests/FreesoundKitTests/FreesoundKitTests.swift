@@ -383,17 +383,16 @@ import Testing
   #expect(sound.descriptors.noteName == "C3")
 }
 
-@Test func soundAnalysisDecodesDescriptorsAndQuery() async throws {
+@Test func soundAnalysisFetchesFullAnalysisWithoutQuery() async throws {
   let mockSession = MockHTTPClient { request in
     #expect(request.url?.path == "/apiv2/sounds/7/analysis")
-    let query = request.url?.query ?? ""
-    #expect(query.contains("descriptors=loudness"))
-    #expect(query.contains("normalized=1"))
+    // The endpoint ignores query params; we send none.
+    #expect(request.url?.query == nil)
     return (Data(#"{"loudness":-23.1,"single_event":true}"#.utf8), makeResponse())
   }
 
   let client = FreesoundClient(authentication: .apiKey("k"), session: mockSession)
-  let analysis = try await client.soundAnalysis(id: 7, descriptors: "loudness", normalized: true)
+  let analysis = try await client.soundAnalysis(id: 7)
 
   #expect(analysis.descriptors.loudness == -23.1)
   #expect(analysis.descriptors.singleEvent == true)
@@ -529,7 +528,9 @@ import Testing
   #expect(response.detail == "ok")
 }
 
-@Test func nonJSONErrorBodyFallsBackToUnknownDetail() async throws {
+@Test func nonJSONErrorBodySurfacesRawBody() async throws {
+  // A non-JSON body (e.g. an upstream gateway's text/HTML page) is surfaced raw
+  // rather than swallowed as "Unknown error".
   let mockSession = MockHTTPClient { _ in
     (Data("gateway timeout".utf8), makeResponse(status: 502))
   }
@@ -544,7 +545,48 @@ import Testing
       return
     }
     #expect(statusCode == 502)
+    #expect(detail == "gateway timeout")
+  }
+}
+
+@Test func emptyErrorBodyFallsBackToUnknownDetail() async throws {
+  let mockSession = MockHTTPClient { _ in (Data(), makeResponse(status: 500)) }
+  let client = FreesoundClient(session: mockSession)
+
+  do {
+    _ = try await client.textSearch(query: "bird")
+    Issue.record("Expected API error")
+  } catch let error as FreesoundError {
+    guard case .apiError(_, let detail) = error else {
+      Issue.record("Expected apiError, got \(error)")
+      return
+    }
     #expect(detail == "Unknown error")
+  }
+}
+
+@Test func validationErrorDetailFlattensFieldMessages() async throws {
+  // The write endpoints return {"detail": {<field>: [msgs]}} on 400; the
+  // field-level messages must survive rather than collapsing to "Unknown error".
+  let body = #"{"detail":{"tags":["You should add at least 3 tags."]}}"#
+  let mockSession = MockHTTPClient { _ in
+    (Data(body.utf8), makeResponse(status: 400))
+  }
+  let client = FreesoundClient(authentication: .oauthToken("t"), session: mockSession)
+
+  do {
+    _ = try await client.describeSound(
+      request: SoundDescribeRequest(
+        uploadFilename: "c.wav", bstCategory: "fx-other", tags: ["a"],
+        description: "d", license: SoundLicense.creativeCommons0.rawValue))
+    Issue.record("Expected API error")
+  } catch let error as FreesoundError {
+    guard case .apiError(let statusCode, let detail) = error else {
+      Issue.record("Expected apiError, got \(error)")
+      return
+    }
+    #expect(statusCode == 400)
+    #expect(detail == "tags: You should add at least 3 tags.")
   }
 }
 
