@@ -1090,6 +1090,98 @@ import Testing
   #expect(user.monogram.backgroundColor?.fractions.red == 170.0 / 255)
 }
 
+// MARK: - Usage tracking
+
+@Test func usageTrackerCountsWithinRollingWindows() {
+  let tracker = FreesoundUsageTracker(limits: .level1)
+  let now = Date(timeIntervalSince1970: 1_000_000)
+  tracker.record(.standard, at: now.addingTimeInterval(-90))  // outside the minute
+  tracker.record(.standard, at: now.addingTimeInterval(-30))  // inside the minute
+  tracker.record(.standard, at: now.addingTimeInterval(-5))  // inside the minute
+  tracker.record(.write, at: now.addingTimeInterval(-10))
+
+  #expect(tracker.count(.standard, within: 60, asOf: now) == 2)
+  #expect(tracker.count(.standard, within: 24 * 3600, asOf: now) == 3)
+  #expect(tracker.count(.write, within: 60, asOf: now) == 1)
+}
+
+@Test func usageTrackerSnapshotReportsRemaining() {
+  let tracker = FreesoundUsageTracker(limits: .level1)
+  let now = Date(timeIntervalSince1970: 2_000_000)
+  for index in 0..<5 { tracker.record(.standard, at: now.addingTimeInterval(-Double(index))) }
+  tracker.record(.write, at: now.addingTimeInterval(-2))
+
+  let snapshot = tracker.snapshot(asOf: now)
+  #expect(snapshot.standard.usedThisMinute == 5)
+  #expect(snapshot.standard.remainingThisMinute == 55)  // 60 - 5
+  #expect(snapshot.standard.remainingToday == 1995)  // 2000 - 5
+  #expect(snapshot.write.usedThisMinute == 1)
+  #expect(snapshot.write.remainingThisMinute == 29)  // 30 - 1
+}
+
+@Test func usageTrackerPrunesAndPersistsEvents() {
+  let tracker = FreesoundUsageTracker()
+  let now = Date(timeIntervalSince1970: 3_000_000)
+  tracker.record(.standard, at: now.addingTimeInterval(-90_000))  // > 24h: pruned on record
+  tracker.record(.standard, at: now.addingTimeInterval(-100))
+
+  // Persistence round-trip: events survive into a fresh tracker.
+  let restored = FreesoundUsageTracker(standardEvents: tracker.events(.standard))
+  #expect(restored.count(.standard, within: 24 * 3600, asOf: now) == 1)
+}
+
+@Test func clientRecordsStandardReadUsage() async throws {
+  let tracker = FreesoundUsageTracker()
+  let mock = MockHTTPClient { _ in
+    (Data(#"{"count":0,"results":[]}"#.utf8), makeResponse())
+  }
+  let client = FreesoundClient(
+    authentication: .apiKey("k"), session: mock, usageTracker: tracker)
+
+  _ = try await client.textSearch(query: "rain")
+  #expect(tracker.count(.standard, within: 60) == 1)
+  #expect(tracker.count(.write, within: 60) == 0)
+}
+
+@Test func clientRecordsWriteUsageForPostActions() async throws {
+  let tracker = FreesoundUsageTracker()
+  let mock = MockHTTPClient { _ in (Data(#"{"detail":"ok"}"#.utf8), makeResponse()) }
+  let client = FreesoundClient(
+    authentication: .oauthToken("t"), session: mock, usageTracker: tracker)
+
+  _ = try await client.rateSound(soundID: 7, rating: 5)
+  #expect(tracker.count(.write, within: 60) == 1)
+  #expect(tracker.count(.standard, within: 60) == 0)
+}
+
+@Test func clientDoesNotCountOAuthTokenExchange() async throws {
+  let tracker = FreesoundUsageTracker()
+  let mock = MockHTTPClient { _ in
+    (Data(#"{"access_token":"a","expires_in":1,"refresh_token":"r"}"#.utf8), makeResponse())
+  }
+  let client = FreesoundClient(session: mock, usageTracker: tracker)
+
+  _ = try await client.exchangeAuthorizationCode(clientID: "c", clientSecret: "s", code: "x")
+  // /oauth2/ token calls aren't subject to the APIv2 throttle.
+  #expect(tracker.count(.standard, within: 60) == 0)
+  #expect(tracker.count(.write, within: 60) == 0)
+}
+
+@Test func clientDoesNotCountCDNAssetDownloads() async throws {
+  let tracker = FreesoundUsageTracker()
+  let soundJSON = #"""
+    {"id":7,"previews":{"preview-hq-mp3":"https://cdn.freesound.org/previews/7/7-hq.mp3"}}
+    """#
+  let sound = try JSONDecoder().decode(Sound.self, from: Data(soundJSON.utf8))
+  let mock = MockHTTPClient { _ in (Data([0xFF]), makeResponse()) }
+  let client = FreesoundClient(
+    authentication: .apiKey("k"), session: mock, usageTracker: tracker)
+
+  _ = try await client.downloadPreview(for: sound)
+  // CDN fetches (cdn.freesound.org) aren't APIv2 requests.
+  #expect(tracker.count(.standard, within: 60) == 0)
+}
+
 private func uniqueTempDirectory() -> URL {
   FileManager.default.temporaryDirectory
     .appendingPathComponent("FreesoundKitCacheTests-\(UUID().uuidString)")

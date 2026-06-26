@@ -96,6 +96,11 @@ public final class FreesoundClient: Sendable {
     set { authenticationStorage.withLock { $0 = newValue } }
   }
 
+  /// Records this client's APIv2 request usage against Freesound's published
+  /// limits, or `nil` if usage tracking is disabled. Read it to show remaining
+  /// quota; the client records into it automatically. See ``FreesoundUsageTracker``.
+  public let usageTracker: FreesoundUsageTracker?
+
   private let authenticationStorage: Mutex<FreesoundAuthentication>
   private let session: FreesoundHTTPClient
   private let decoder: JSONDecoder
@@ -108,16 +113,20 @@ public final class FreesoundClient: Sendable {
   ///     custom ``FreesoundHTTPClient`` to stub requests in tests.
   ///   - decoder: The JSON decoder used for response bodies. Do not mutate it
   ///     after passing it in; the client may use it from multiple threads.
+  ///   - usageTracker: An optional ``FreesoundUsageTracker`` the client records
+  ///     each APIv2 request into. Defaults to `nil` (no tracking).
   public init(
     baseURL: URL = URL(string: "https://freesound.org/apiv2")!,
     authentication: FreesoundAuthentication = .none,
     session: FreesoundHTTPClient = URLSession.shared,
-    decoder: JSONDecoder = JSONDecoder()
+    decoder: JSONDecoder = JSONDecoder(),
+    usageTracker: FreesoundUsageTracker? = nil
   ) {
     self.baseURL = baseURL
     self.authenticationStorage = Mutex(authentication)
     self.session = session
     self.decoder = decoder
+    self.usageTracker = usageTracker
   }
 
   // MARK: - Searching
@@ -898,6 +907,7 @@ public final class FreesoundClient: Sendable {
   }
 
   private func perform(_ request: URLRequest) async throws -> Data {
+    recordUsage(for: request)
     do {
       let (data, response) = try await session.data(for: request)
       guard let httpResponse = response as? HTTPURLResponse else {
@@ -912,6 +922,17 @@ public final class FreesoundClient: Sendable {
     } catch {
       throw FreesoundError.transportError(error)
     }
+  }
+
+  /// Counts a request against the ``usageTracker`` if one is configured. Only
+  /// APIv2 requests count: CDN asset downloads (a different host) and OAuth token
+  /// exchanges (handled outside the APIv2 throttle) are excluded. Non-`GET`
+  /// methods are write actions; everything else is a standard read.
+  private func recordUsage(for request: URLRequest) {
+    guard let usageTracker, let url = request.url else { return }
+    guard url.host == baseURL.host, !url.path.contains("/oauth2/") else { return }
+    let isWrite = (request.httpMethod ?? "GET").uppercased() != "GET"
+    usageTracker.record(isWrite ? .write : .standard)
   }
 
   /// Reads the file on a Dispatch thread so a large blocking read doesn't

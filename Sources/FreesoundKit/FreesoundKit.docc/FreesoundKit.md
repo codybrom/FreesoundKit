@@ -157,6 +157,13 @@ let avatar = try await cache.avatarData(for: user.avatar!)
 - ``User/monogram``
 - ``Me/monogram``
 
+### Tracking rate-limit usage
+
+- ``FreesoundUsageTracker``
+- ``FreesoundUsageLimits``
+- ``APIUsageKind``
+- ``FreesoundClient/usageTracker``
+
 ### Uploading and editing
 
 - ``FreesoundClient/uploadSound(fileURL:request:fileFieldName:)``

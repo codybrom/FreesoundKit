@@ -16,6 +16,7 @@ Unofficial Swift client for the [Freesound API v2](https://freesound.org/docs/ap
 - Preview downloads that work without OAuth (`downloadPreview`)
 - Disk-backed asset cache for previews, images, and avatars (`FreesoundAssetCache`)
 - Default-avatar monograms matching freesound.org (`AvatarMonogram`)
+- Automatic rate-limit usage tracking against Freesound's throttle windows (`FreesoundUsageTracker`)
 
 ## Requirements
 
@@ -151,6 +152,30 @@ if let rgb = monogram.backgroundColor {      // nil only for an empty username
     let (r, g, b) = rgb.fractions            // 0...1, e.g. SwiftUI Color(red: r, green: g, blue: b)
 }
 ```
+
+## Rate-limit tracking
+
+Freesound throttles APIv2 requests on rolling windows (per minute and per day), with separate buckets
+for reads and write actions. Pass a `FreesoundUsageTracker` to the client and it records every APIv2
+request automatically — classified as a read or a write, and excluding traffic that isn't throttled
+(OAuth token exchanges and CDN asset downloads):
+
+```swift
+let tracker = FreesoundUsageTracker(limits: .level1)   // default for new API keys
+let client = FreesoundClient(authentication: .apiKey("…"), usageTracker: tracker)
+
+_ = try await client.textSearch(query: "rain")
+
+let usage = tracker.snapshot()
+print("\(usage.standard.remainingThisMinute) reads left this minute")
+print("\(usage.standard.remainingToday)/\(usage.standard.perDay) reads left today")
+```
+
+Because the client tracks at the single point every request flows through, the count includes
+pagination and downloads — no need to instrument call sites. It's a per-client estimate (it can't see
+requests other apps make with the same credential); persist it across launches by saving
+`tracker.events(.standard)` / `.write` and restoring them via `init`. Limits come from Freesound's
+published per-level throttle tables — use `.level1` (default), `.level2`, or `.level3` to match your key.
 
 ## Error handling
 
