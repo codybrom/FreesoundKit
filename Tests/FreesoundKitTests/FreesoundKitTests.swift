@@ -1107,6 +1107,25 @@ import Testing
   }
 }
 
+#if canImport(Observation)
+  @MainActor
+  @Test func usageMonitorSnapshotsTrackerAndRefreshes() {
+    let tracker = FreesoundUsageTracker(limits: .level1)
+    tracker.record(.standard)
+    let monitor = FreesoundUsageMonitor(tracker, refresh: .seconds(60))
+    defer { monitor.stop() }
+
+    #expect(monitor.snapshot.standard.usedToday == 1)
+
+    tracker.record(.standard)
+    tracker.record(.write)
+    // The timer hasn't ticked yet; refreshNow re-reads immediately.
+    monitor.refreshNow()
+    #expect(monitor.snapshot.standard.usedToday == 2)
+    #expect(monitor.snapshot.write.usedToday == 1)
+  }
+#endif
+
 // MARK: - Avatar monograms
 
 @Test func monogramMatchesFreesoundSelection() {

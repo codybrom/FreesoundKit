@@ -12,6 +12,7 @@ Audited the full client surface against the Freesound server source (`apiv2/urls
 - **`Sound.score`** — the search-relevance score the API emits on search/similarity results.
 - **`BookmarkCategory.sounds`** — the category's sounds URL, emitted by the bookmark-category serializer.
 - **`SoundSearchSort`** — a typed enum of the `sort` values accepted by `textSearch`. The API silently falls back to `score` on an unrecognized value, so these constants guard against typos (e.g. `downloads_desc`, not `num_downloads desc`).
+- **`FreesoundUsageMonitor`** — an opt-in `@MainActor @Observable` companion over the (still-`Sendable`) `FreesoundUsageTracker`. It re-snapshots on a timer (the rolling windows decay with wall-clock time) so SwiftUI views can observe `snapshot` directly, and only publishes when the snapshot actually changes so an idle meter doesn't wake SwiftUI every tick. The tracker itself is unchanged.
 
 ### Changed
 
