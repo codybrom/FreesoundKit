@@ -366,6 +366,33 @@ import Testing
   }
 }
 
+@Test func soundDownloadLinkUsesOAuthAndDecodesURL() async throws {
+  let mockSession = MockHTTPClient { request in
+    #expect(request.httpMethod == "GET")
+    #expect(request.url?.path == "/apiv2/sounds/7/download/link")
+    #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer oauth-token")
+    let json = #"{"download_link":"https://freesound.org/apiv2/download/abc.token/"}"#
+    return (Data(json.utf8), makeResponse())
+  }
+
+  let client = FreesoundClient(authentication: .oauthToken("oauth-token"), session: mockSession)
+  let link = try await client.soundDownloadLink(id: 7)
+  #expect(link.downloadLink == URL(string: "https://freesound.org/apiv2/download/abc.token/"))
+}
+
+@Test func soundDownloadLinkRequiresOAuth() async throws {
+  let client = FreesoundClient(authentication: .apiKey("k"), session: MockHTTPClient.unused)
+  do {
+    _ = try await client.soundDownloadLink(id: 7)
+    Issue.record("Expected oauthRequired error")
+  } catch let error as FreesoundError {
+    guard case .oauthRequired = error else {
+      Issue.record("Expected oauthRequired, got \(error)")
+      return
+    }
+  }
+}
+
 @Test func uploadSoundBuildsMultipartBody() async throws {
   let fileURL = FileManager.default.temporaryDirectory
     .appendingPathComponent("freesoundkit-test-\(UUID().uuidString).wav")
@@ -782,7 +809,7 @@ import Testing
      "duration":0.5,"category":"Music","subcategory":"Percussion","category_code":"mu-perc",
      "previews":{"preview-hq-mp3":"https://freesound.org/data/previews/7/7_hq.mp3"},
      "images":{"waveform_m":"https://freesound.org/data/displays/7/7_wave_M.png"},
-     "num_downloads":10,"avg_rating":4.5,"num_ratings":6,"num_comments":2,
+     "num_downloads":10,"avg_rating":4.5,"num_ratings":6,"num_comments":2,"score":98.5,
      "brightness":42.5,"bpm":120,"loopable":true,"tonality":"C minor",
      "beat_times":[0.1,0.2],"note_name":"C3"}
     """#
@@ -790,6 +817,7 @@ import Testing
   let roundTripped = try JSONDecoder().decode(Sound.self, from: JSONEncoder().encode(original))
   // Exact equality covers every keyed field AND the flattened descriptors.
   #expect(roundTripped == original)
+  #expect(roundTripped.score == 98.5)
   #expect(roundTripped.descriptors.bpm == 120)
   #expect(roundTripped.descriptors.beatTimes == [0.1, 0.2])
   #expect(roundTripped.previews?.previewHQMP3 != nil)

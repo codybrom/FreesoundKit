@@ -92,7 +92,7 @@ let refreshed = try await client.refreshAccessToken(
 
 - `textSearch`, `contentSearch`, `combinedSearch` (+ `moreResults`)
 - `page(at:)`, `nextPage`, `previousPage` for any paged response
-- `sound`, `soundAnalysis`, `similarSounds`, `soundComments`, `downloadOriginalSound`, `downloadPreview`
+- `sound`, `soundAnalysis`, `similarSounds`, `soundComments`, `downloadOriginalSound`, `soundDownloadLink`, `downloadPreview`
 - `uploadSound`, `describeSound`, `editSound`, `pendingUploads`, `bookmarkSound`, `rateSound`, `commentSound`
 - `user`, `userSounds`, `userPacks`
 - `pack`, `packSounds`, `downloadPack`

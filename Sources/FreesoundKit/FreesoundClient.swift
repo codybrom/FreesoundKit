@@ -323,6 +323,24 @@ public final class FreesoundClient: Sendable {
     try await sendData(path: "/sounds/\(id)/download/", requiresOAuth: true)
   }
 
+  /// Requests a short-lived, unauthenticated link for downloading a sound's
+  /// original file.
+  ///
+  /// Like ``downloadOriginalSound(id:)`` this requires an
+  /// ``FreesoundAuthentication/oauthToken(_:)``, but instead of streaming the
+  /// bytes through this client it returns a ``SoundDownloadLink`` whose URL
+  /// carries a signed, time-limited token. That URL needs no `Authorization`
+  /// header, so it can be handed to `AVPlayer`, a background `URLSession`
+  /// download task, or `WKWebView` — or fetched with ``downloadAsset(at:)``.
+  /// The token expires, so request a fresh link rather than persisting it.
+  /// - Parameter id: The sound's identifier.
+  /// - Returns: A ``SoundDownloadLink`` wrapping the download URL.
+  /// - Throws: ``FreesoundError/oauthRequired`` if the client is not
+  ///   OAuth-authenticated, or another ``FreesoundError`` if the request fails.
+  public func soundDownloadLink(id: Int) async throws -> SoundDownloadLink {
+    try await send(path: "/sounds/\(id)/download/link/", requiresOAuth: true)
+  }
+
   /// Downloads the preview (lossy-compressed) audio for a sound.
   ///
   /// Preview files are public, so this works with any ``authentication`` —

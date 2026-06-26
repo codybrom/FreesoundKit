@@ -51,6 +51,28 @@ public struct APIStatusResponse: Codable, Sendable, Equatable, Hashable {
   }
 }
 
+/// A short-lived link for downloading a sound's original file without
+/// authentication, returned by ``FreesoundClient/soundDownloadLink(id:)``.
+///
+/// The ``downloadLink`` URL embeds a signed, time-limited token, so it can be
+/// handed directly to APIs that can't carry the client's OAuth `Authorization`
+/// header — `AVPlayer`/`AVPlayerItem`, a background `URLSession` download task,
+/// or `WKWebView` — or fetched in-process with
+/// ``FreesoundClient/downloadAsset(at:)``. The token expires, so request a fresh
+/// link rather than persisting it.
+public struct SoundDownloadLink: Codable, Sendable, Equatable, Hashable {
+  /// The unauthenticated, time-limited download URL.
+  public let downloadLink: URL
+
+  enum CodingKeys: String, CodingKey {
+    case downloadLink = "download_link"
+  }
+
+  public init(downloadLink: URL) {
+    self.downloadLink = downloadLink
+  }
+}
+
 public struct OAuthTokenResponse: Codable, Sendable, Equatable, Hashable {
   public let accessToken: String
   public let scope: String?
@@ -114,6 +136,10 @@ public struct Sound: Codable, Sendable, Equatable, Hashable, Identifiable {
   public let comment: URL?
   public let similarSounds: URL?
   public let analysisFiles: [String: URL]?
+  /// The search relevance score. Only present on sounds returned by
+  /// ``FreesoundClient/textSearch(query:parameters:)`` and the similarity
+  /// endpoints; `nil` for a sound fetched directly via ``FreesoundClient/sound(id:fields:)``.
+  public let score: Double?
   public let descriptors: SoundDescriptors
 
   /// ``created`` parsed as a `Date`, or `nil` if absent or unrecognized.
@@ -161,6 +187,7 @@ public struct Sound: Codable, Sendable, Equatable, Hashable, Identifiable {
     case comment
     case similarSounds = "similar_sounds"
     case analysisFiles = "analysis_files"
+    case score
   }
 
   public init(from decoder: Decoder) throws {
@@ -207,6 +234,7 @@ public struct Sound: Codable, Sendable, Equatable, Hashable, Identifiable {
     comment = try container.decodeIfPresent(URL.self, forKey: .comment)
     similarSounds = try container.decodeIfPresent(URL.self, forKey: .similarSounds)
     analysisFiles = try container.decodeIfPresent([String: URL].self, forKey: .analysisFiles)
+    score = try container.decodeIfPresent(Double.self, forKey: .score)
     descriptors = try SoundDescriptors(from: decoder)
   }
 
@@ -259,6 +287,7 @@ public struct Sound: Codable, Sendable, Equatable, Hashable, Identifiable {
     try container.encodeIfPresent(comment, forKey: .comment)
     try container.encodeIfPresent(similarSounds, forKey: .similarSounds)
     try container.encodeIfPresent(analysisFiles, forKey: .analysisFiles)
+    try container.encodeIfPresent(score, forKey: .score)
   }
 
   /// Memberwise initializer. Useful for building fixtures in tests and SwiftUI
@@ -305,6 +334,7 @@ public struct Sound: Codable, Sendable, Equatable, Hashable, Identifiable {
     comment: URL? = nil,
     similarSounds: URL? = nil,
     analysisFiles: [String: URL]? = nil,
+    score: Double? = nil,
     descriptors: SoundDescriptors = SoundDescriptors()
   ) {
     self.id = id
@@ -348,6 +378,7 @@ public struct Sound: Codable, Sendable, Equatable, Hashable, Identifiable {
     self.comment = comment
     self.similarSounds = similarSounds
     self.analysisFiles = analysisFiles
+    self.score = score
     self.descriptors = descriptors
   }
 }
@@ -1010,6 +1041,9 @@ public struct Pack: Codable, Sendable, Equatable, Hashable, Identifiable {
   public let created: String?
   public let numSounds: Int?
   public let sounds: URL?
+  /// The pack's download URL. The current Freesound API does not include this in
+  /// the pack serializer, so it is typically `nil`; download a pack with
+  /// ``FreesoundClient/downloadPack(id:)`` instead.
   public let download: URL?
   public let numDownloads: Int?
 
@@ -1160,19 +1194,25 @@ public struct BookmarkCategory: Codable, Sendable, Equatable, Hashable, Identifi
   public let name: String
   public let url: URL?
   public let numSounds: Int?
+  /// The API URL for the sounds in this category. Equivalent to calling
+  /// ``FreesoundClient/myBookmarkCategorySounds(categoryID:parameters:)`` with
+  /// this category's ``id``.
+  public let sounds: URL?
 
   enum CodingKeys: String, CodingKey {
     case id
     case name
     case url
     case numSounds = "num_sounds"
+    case sounds
   }
 
-  public init(id: Int, name: String, url: URL? = nil, numSounds: Int? = nil) {
+  public init(id: Int, name: String, url: URL? = nil, numSounds: Int? = nil, sounds: URL? = nil) {
     self.id = id
     self.name = name
     self.url = url
     self.numSounds = numSounds
+    self.sounds = sounds
   }
 }
 

@@ -2,6 +2,20 @@
 
 All notable changes to FreesoundKit are documented in this file. This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Audited the full client surface against the Freesound server source (`apiv2/urls.py`, `views.py`, `serializers.py`). Coverage was already near-complete; this closes the remaining gaps.
+
+### Added
+
+- **`soundDownloadLink(id:)`** maps the `sounds/<id>/download/link/` endpoint, returning a `SoundDownloadLink` whose URL carries a signed, time-limited token. Unlike `downloadOriginalSound(id:)`, the URL needs no `Authorization` header, so it can be handed to `AVPlayer`, a background `URLSession` download task, or `WKWebView`.
+- **`Sound.score`** — the search-relevance score the API emits on search/similarity results.
+- **`BookmarkCategory.sounds`** — the category's sounds URL, emitted by the bookmark-category serializer.
+
+### Changed
+
+- Documented that `Pack.download` is not emitted by the current Freesound pack serializer (typically `nil`); use `downloadPack(id:)`.
+
 ## [1.2.0] - 2026-06-26
 
 ### Added
