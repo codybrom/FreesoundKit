@@ -101,8 +101,7 @@ let refreshed = try await client.refreshAccessToken(
 
 ## Caching & persistence
 
-All response models conform to `Codable`, so you can cache results in memory or persist them between
-launches with `JSONEncoder`/`JSONDecoder`:
+All response models conform to `Codable`, so you can cache results in memory or persist them between launches with `JSONEncoder`/`JSONDecoder`:
 
 ```swift
 // Persist a fetched sound, then restore it later without a network round-trip.
@@ -110,16 +109,11 @@ let data = try JSONEncoder().encode(sound)
 let restored = try JSONDecoder().decode(Sound.self, from: data)
 ```
 
-Encoding mirrors the API's response shape — including the audio-descriptor fields that `Sound` and
-`SoundAnalysis` flatten to the top level — so a `decode → encode → decode` round-trip is lossless.
-(`PagedResponse` is encodable whenever its element type is.)
+Encoding mirrors the API's response shape — including the audio-descriptor fields that `Sound` and `SoundAnalysis` flatten to the top level — so a `decode → encode → decode` round-trip is lossless. (`PagedResponse` is encodable whenever its element type is.)
 
 ### Caching binary assets
 
-Models carry only URLs for previews, waveforms/spectrograms, and avatars. To cache the *bytes*, use
-`FreesoundAssetCache` — a disk-backed actor that downloads on a miss, serves from disk on a hit,
-de-duplicates concurrent requests for the same URL, and evicts least-recently-used files to stay
-under a byte budget:
+Models carry only URLs for previews, waveforms/spectrograms, and avatars. To cache the *bytes*, use `FreesoundAssetCache` — a disk-backed actor that downloads on a miss, serves from disk on a hit, de-duplicates concurrent requests for the same URL, and evicts least-recently-used files to stay under a byte budget:
 
 ```swift
 let cache = FreesoundAssetCache(
@@ -131,19 +125,13 @@ let preview  = try await cache.previewData(for: sound)        // .hqMP3 by defau
 let avatar   = try await cache.avatarData(for: user.avatar!)  // works for User and Me
 ```
 
-Fetch any asset URL directly with `cache.data(for: url)` (or, without a cache,
-`client.downloadAsset(at:)` / the typed `client.downloadImage(for:type:)`). The cache owns its
-directory — `removeAll()` deletes it wholesale, so give it a dedicated folder.
+Fetch any asset URL directly with `cache.data(for: url)` (or, without a cache, `client.downloadAsset(at:)` / the typed `client.downloadImage(for:type:)`). The cache owns its directory — `removeAll()` deletes it wholesale, so give it a dedicated folder.
 
-> Freesound also returns `*_bw_*` image keys, but its source documents them as byte-identical
-> duplicates of the standard waveform/spectrogram images, so `SoundImageType` models only the four
-> distinct images.
+> Freesound also returns `*_bw_*` image keys, but its source documents them as byte-identical duplicates of the standard waveform/spectrogram images, so `SoundImageType` models only the four distinct images.
 
 ### Default-avatar monograms
 
-When a user has no avatar, Freesound renders a letter monogram over a palette color. `AvatarMonogram`
-reproduces that exact selection (matching `bw_user_avatar` + `AVATAR_BG_COLORS` in the server source),
-so your fallback matches the website — no network request, all platforms:
+When a user has no avatar, Freesound renders a letter monogram over a palette color. `AvatarMonogram` reproduces that exact selection (matching `bw_user_avatar` + `AVATAR_BG_COLORS` in the server source), so your fallback matches the website — no network request, all platforms:
 
 ```swift
 let monogram = user.monogram                 // also me.monogram, or AvatarMonogram(username:)
@@ -155,10 +143,7 @@ if let rgb = monogram.backgroundColor {      // nil only for an empty username
 
 ## Rate-limit tracking
 
-Freesound throttles APIv2 requests on rolling windows (per minute and per day), with separate buckets
-for reads and write actions. Pass a `FreesoundUsageTracker` to the client and it records every APIv2
-request automatically — classified as a read or a write, and excluding traffic that isn't throttled
-(OAuth token exchanges and CDN asset downloads):
+Freesound throttles APIv2 requests on rolling windows (per minute and per day), with separate buckets for reads and write actions. Pass a `FreesoundUsageTracker` to the client and it records every APIv2 request automatically — classified as a read or a write, and excluding traffic that isn't throttled (OAuth token exchanges and CDN asset downloads):
 
 ```swift
 let tracker = FreesoundUsageTracker(limits: .level1)   // default for new API keys
@@ -171,11 +156,7 @@ print("\(usage.standard.remainingThisMinute) reads left this minute")
 print("\(usage.standard.remainingToday)/\(usage.standard.perDay) reads left today")
 ```
 
-Because the client tracks at the single point every request flows through, the count includes
-pagination and downloads — no need to instrument call sites. It's a per-client estimate (it can't see
-requests other apps make with the same credential); persist it across launches by saving
-`tracker.events(.standard)` / `.write` and restoring them via `init`. Limits come from Freesound's
-published per-level throttle tables — use `.level1` (default), `.level2`, or `.level3` to match your key.
+Because the client tracks at the single point every request flows through, the count includes pagination and downloads — no need to instrument call sites. It's a per-client estimate (it can't see requests other apps make with the same credential); persist it across launches by saving `tracker.events(.standard)` / `.write` and restoring them via `init`. Limits come from Freesound's published per-level throttle tables — use `.level1` (default), `.level2`, or `.level3` to match your key.
 
 ## Error handling
 
@@ -229,15 +210,10 @@ swift run freesound-tester oauth-refresh
 
 ## Terms of use & rate limits
 
-This library is an unofficial wrapper. Your use of the Freesound API is governed
-by Freesound's [Terms of Use](https://freesound.org/docs/api/terms_of_use.html).
-A few obligations that affect apps built with this library:
+This library is an unofficial wrapper. Your use of the Freesound API is governed by Freesound's [Terms of Use](https://freesound.org/docs/api/terms_of_use.html). A few obligations that affect apps built with this library:
 
-- **Non-commercial by default.** The API is free for non-commercial use only;
-  commercial use requires a separate licensing agreement with Freesound.
-- **Attribution.** You must credit Freesound and the individual sound authors, and
-  respect each sound's license (visible via `Sound.license`). Surface this
-  wherever you play or display sounds.
+- **Non-commercial by default.** The API is free for non-commercial use only; commercial use requires a separate licensing agreement with Freesound.
+- **Attribution.** You must credit Freesound and the individual sound authors, and respect each sound's license (visible via `Sound.license`). Surface this wherever you play or display sounds.
 - **One key per app.** Don't register multiple API keys to work around limits.
 
 Freesound throttles requests ([overview](https://freesound.org/docs/api/overview.html)):
@@ -247,13 +223,9 @@ Freesound throttles requests ([overview](https://freesound.org/docs/api/overview
 | Standard (search, fetch, download) | 60 | 2,000 |
 | Write (upload, describe, edit, comment, rate, bookmark) | 30 | 500 |
 
-When a limit is exceeded the API responds `429`, surfaced here as
-`FreesoundError.rateLimited(retryAfter:detail:)` — `retryAfter` carries the
-server's `Retry-After` hint in seconds when present, and `detail` says which
-limit was hit. Contact Freesound if you need higher limits.
+When a limit is exceeded the API responds `429`, surfaced here as `FreesoundError.rateLimited(retryAfter:detail:)` — `retryAfter` carries the server's `Retry-After` hint in seconds when present, and `detail` says which limit was hit. Contact Freesound if you need higher limits.
 
-To honor `Retry-After` automatically, wrap an idempotent call in
-`withRateLimitRetry`:
+To honor `Retry-After` automatically, wrap an idempotent call in `withRateLimitRetry`:
 
 ```swift
 let page = try await client.withRateLimitRetry {
