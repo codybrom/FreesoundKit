@@ -12,7 +12,7 @@ Unofficial Swift client for the [Freesound API v2](https://freesound.org/docs/ap
 - Typed models for sound metadata + audio descriptor fields
 - `Codable` models you can cache or persist between launches with `JSONEncoder`/`JSONDecoder`
 - A `Sendable` client you can share across tasks and actors
-- Pagination helpers (`nextPage`, `previousPage`, `moreResults`)
+- Pagination helpers (`page(at:)`, `nextPage`, `previousPage`)
 - Preview downloads that work without OAuth (`downloadPreview`)
 - Disk-backed asset cache for previews, images, and avatars (`FreesoundAssetCache`)
 - Default-avatar monograms matching freesound.org (`AvatarMonogram`)
@@ -46,6 +46,10 @@ print(page.results.first?.name ?? "no results")
 if let next = try await client.nextPage(of: page) {
     print("next page has \(next.results.count) results")
 }
+
+// Sort with the typed SoundSearchSort enum rather than raw strings
+let popular = try await client.textSearch(
+    query: "piano", parameters: ["sort": SoundSearchSort.downloadsDescending.rawValue])
 
 // Preview audio is public — no OAuth needed (request the "previews" field)
 let sounds = try await client.textSearch(
@@ -90,7 +94,7 @@ let refreshed = try await client.refreshAccessToken(
 
 ## Implemented endpoints
 
-- `textSearch`, `contentSearch`, `combinedSearch` (+ `moreResults`)
+- `textSearch`, `similaritySearch`
 - `page(at:)`, `nextPage`, `previousPage` for any paged response
 - `sound`, `soundAnalysis`, `similarSounds`, `soundComments`, `downloadOriginalSound`, `soundDownloadLink`, `downloadPreview`
 - `uploadSound`, `describeSound`, `editSound`, `pendingUploads`, `bookmarkSound`, `rateSound`, `commentSound`
@@ -157,6 +161,14 @@ print("\(usage.standard.remainingToday)/\(usage.standard.perDay) reads left toda
 ```
 
 Because the client tracks at the single point every request flows through, the count includes pagination and downloads — no need to instrument call sites. It's a per-client estimate (it can't see requests other apps make with the same credential); persist it across launches by saving `tracker.events(.standard)` / `.write` and restoring them via `init`. Limits come from Freesound's published per-level throttle tables — use `.level1` (default), `.level2`, or `.level3` to match your key.
+
+For SwiftUI, wrap the tracker in the optional `@MainActor @Observable` `FreesoundUsageMonitor`. It re-snapshots on a timer (the rolling windows decay with time, so a tick is needed even when idle) and republishes only when the snapshot changes, so you can bind `snapshot` directly:
+
+```swift
+@State private var usage = FreesoundUsageMonitor(tracker)   // refreshes every 5s by default
+// in a view body:
+Text("\(usage.snapshot.standard.remainingToday) reads left today")
+```
 
 ## Error handling
 

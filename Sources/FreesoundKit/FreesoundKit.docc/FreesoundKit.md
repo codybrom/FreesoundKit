@@ -112,14 +112,17 @@ let avatar = try await cache.avatarData(for: user.avatar!)
 
 - ``FreesoundClient/textSearch(query:parameters:)``
 - ``FreesoundClient/similaritySearch(toSoundID:space:parameters:)``
+- ``SoundSearchSort``
 - ``SimilaritySpace``
 
-### Deprecated search
+### Deprecated
 
 - ``FreesoundClient/contentSearch(parameters:)``
 - ``FreesoundClient/combinedSearch(parameters:)``
 - ``FreesoundClient/moreResults(of:)``
 - ``CombinedSearchResponse``
+- ``FreesoundClient/soundAnalysis(id:descriptors:normalized:)``
+- ``FreesoundClient/bookmarkSound(soundID:name:category:)``
 
 ### Paginating results
 
@@ -131,7 +134,7 @@ let avatar = try await cache.avatarData(for: user.avatar!)
 ### Fetching sound details
 
 - ``FreesoundClient/sound(id:fields:)``
-- ``FreesoundClient/soundAnalysis(id:descriptors:normalized:)``
+- ``FreesoundClient/soundAnalysis(id:)``
 - ``FreesoundClient/similarSounds(id:parameters:)``
 - ``FreesoundClient/soundComments(id:parameters:)``
 
@@ -139,8 +142,10 @@ let avatar = try await cache.avatarData(for: user.avatar!)
 
 - ``FreesoundClient/downloadPreview(for:format:)``
 - ``FreesoundClient/downloadOriginalSound(id:)``
+- ``FreesoundClient/soundDownloadLink(id:)``
 - ``FreesoundClient/downloadPack(id:)``
 - ``SoundPreviewFormat``
+- ``SoundDownloadLink``
 
 ### Downloading and caching images & assets
 
@@ -160,6 +165,7 @@ let avatar = try await cache.avatarData(for: user.avatar!)
 ### Tracking rate-limit usage
 
 - ``FreesoundUsageTracker``
+- ``FreesoundUsageMonitor``
 - ``FreesoundUsageLimits``
 - ``APIUsageKind``
 - ``FreesoundClient/usageTracker``
@@ -173,10 +179,11 @@ let avatar = try await cache.avatarData(for: user.avatar!)
 - ``SoundUploadRequest``
 - ``SoundDescribeRequest``
 - ``SoundEditRequest``
+- ``SoundLicense``
 
 ### Reacting to sounds
 
-- ``FreesoundClient/bookmarkSound(soundID:name:category:)``
+- ``FreesoundClient/bookmarkSound(soundID:category:)``
 - ``FreesoundClient/rateSound(soundID:rating:)``
 - ``FreesoundClient/commentSound(soundID:comment:)``
 
