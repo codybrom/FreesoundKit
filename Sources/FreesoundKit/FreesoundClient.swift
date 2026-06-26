@@ -135,7 +135,9 @@ public final class FreesoundClient: Sendable {
   /// - Parameters:
   ///   - query: The search terms.
   ///   - parameters: Optional query parameters (for example `filter`, `sort`,
-  ///     `page`, `page_size`, `fields`). `nil` values are omitted.
+  ///     `page`, `page_size`, `fields`). `nil` values are omitted. For `sort`,
+  ///     pass a ``SoundSearchSort`` raw value; `page_size` is capped at 150 by
+  ///     the server (default 15).
   /// - Returns: A page of matching ``Sound`` results.
   /// - Throws: ``FreesoundError`` if the request fails.
   public func textSearch(query: String, parameters: [String: String?] = [:]) async throws
@@ -499,21 +501,19 @@ public final class FreesoundClient: Sendable {
 
   /// Bookmarks a sound for the authenticated user.
   ///
-  /// Requires an ``FreesoundAuthentication/oauthToken(_:)``.
+  /// Requires an ``FreesoundAuthentication/oauthToken(_:)``. If `category` is
+  /// given, the bookmark is filed under (and the category created if needed)
+  /// that name; otherwise it is left uncategorized.
   /// - Parameters:
   ///   - soundID: The sound's identifier.
-  ///   - name: An optional name for the bookmark.
   ///   - category: An optional bookmark category to file it under.
   /// - Returns: The API status response.
   /// - Throws: ``FreesoundError/oauthRequired`` if not OAuth-authenticated, or
   ///   another ``FreesoundError`` if the request fails.
-  public func bookmarkSound(soundID: Int, name: String? = nil, category: String? = nil)
+  public func bookmarkSound(soundID: Int, category: String? = nil)
     async throws -> APIStatusResponse
   {
     var fields: [String: String] = [:]
-    if let name {
-      fields["name"] = name
-    }
     if let category {
       fields["category"] = category
     }
@@ -525,6 +525,22 @@ public final class FreesoundClient: Sendable {
       contentType: "application/x-www-form-urlencoded",
       requiresOAuth: true
     )
+  }
+
+  /// Bookmarks a sound for the authenticated user.
+  ///
+  /// - Warning: The Freesound API's bookmark endpoint no longer accepts a
+  ///   bookmark `name` — its request serializer reads only `category` — so the
+  ///   `name` argument is ignored. Use ``bookmarkSound(soundID:category:)``.
+  @available(
+    *, deprecated,
+    message:
+      "Freesound's bookmark endpoint ignores `name`; only `category` is used. Call bookmarkSound(soundID:category:)."
+  )
+  public func bookmarkSound(soundID: Int, name: String?, category: String? = nil)
+    async throws -> APIStatusResponse
+  {
+    try await bookmarkSound(soundID: soundID, category: category)
   }
 
   /// Rates a sound on behalf of the authenticated user.

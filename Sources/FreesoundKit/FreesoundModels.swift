@@ -441,6 +441,33 @@ public enum SimilaritySpace: String, Sendable, Equatable, Hashable, CaseIterable
   case freesoundClassic = "freesound_classic"
 }
 
+/// The sort orders accepted by ``FreesoundClient/textSearch(query:parameters:)``
+/// through the `sort` parameter — pass `SoundSearchSort.<case>.rawValue`.
+///
+/// The API silently falls back to ``score`` for any unrecognized `sort` value,
+/// so prefer these constants over raw strings (note the exact spellings, e.g.
+/// `downloads_desc`, not `num_downloads desc`).
+public enum SoundSearchSort: String, Sendable, Equatable, Hashable, CaseIterable {
+  /// Most relevant to the text query first. The default when `sort` is omitted.
+  case score
+  /// Longest duration first.
+  case durationDescending = "duration_desc"
+  /// Shortest duration first.
+  case durationAscending = "duration_asc"
+  /// Most recently added first.
+  case createdDescending = "created_desc"
+  /// Oldest first.
+  case createdAscending = "created_asc"
+  /// Most downloaded first.
+  case downloadsDescending = "downloads_desc"
+  /// Least downloaded first.
+  case downloadsAscending = "downloads_asc"
+  /// Highest average rating first (ties broken by number of ratings).
+  case ratingDescending = "rating_desc"
+  /// Lowest average rating first (ties broken by number of ratings).
+  case ratingAscending = "rating_asc"
+}
+
 public struct SoundImages: Codable, Sendable, Equatable, Hashable {
   public let waveformL: URL?
   public let waveformM: URL?

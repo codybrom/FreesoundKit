@@ -11,10 +11,15 @@ Audited the full client surface against the Freesound server source (`apiv2/urls
 - **`soundDownloadLink(id:)`** maps the `sounds/<id>/download/link/` endpoint, returning a `SoundDownloadLink` whose URL carries a signed, time-limited token. Unlike `downloadOriginalSound(id:)`, the URL needs no `Authorization` header, so it can be handed to `AVPlayer`, a background `URLSession` download task, or `WKWebView`.
 - **`Sound.score`** — the search-relevance score the API emits on search/similarity results.
 - **`BookmarkCategory.sounds`** — the category's sounds URL, emitted by the bookmark-category serializer.
+- **`SoundSearchSort`** — a typed enum of the `sort` values accepted by `textSearch`. The API silently falls back to `score` on an unrecognized value, so these constants guard against typos (e.g. `downloads_desc`, not `num_downloads desc`).
 
 ### Changed
 
 - Documented that `Pack.download` is not emitted by the current Freesound pack serializer (typically `nil`); use `downloadPack(id:)`.
+
+### Deprecated
+
+- **`bookmarkSound(soundID:name:category:)`** — the Freesound bookmark endpoint's request serializer reads only `category`, so the `name` argument was being silently dropped on the wire. Use `bookmarkSound(soundID:category:)`. The deprecated overload now forwards to it and no longer sends `name`.
 
 ## [1.2.0] - 2026-06-26
 

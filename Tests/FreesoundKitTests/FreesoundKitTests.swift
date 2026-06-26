@@ -260,6 +260,33 @@ import Testing
   #expect(response.detail == "ok")
 }
 
+// The test itself is marked deprecated so the one intentional call to the
+// deprecated `bookmarkSound(soundID:name:category:)` overload compiles without
+// a warning.
+@available(*, deprecated)
+@Test func bookmarkDoesNotSendNameFieldTheAPIIgnores() async throws {
+  let mockSession = MockHTTPClient { request in
+    let body = String(data: request.httpBody ?? Data(), encoding: .utf8) ?? ""
+    // The deprecated `name:` argument must not reach the wire — the Freesound
+    // bookmark serializer only reads `category`.
+    #expect(!body.contains("name="))
+    #expect(body.contains("category=favorites"))
+    return (Data(#"{"detail":"ok"}"#.utf8), makeResponse())
+  }
+
+  let client = FreesoundClient(authentication: .oauthToken("oauth-token"), session: mockSession)
+  let response = try await client.bookmarkSound(
+    soundID: 99, name: "My favorite", category: "favorites")
+  #expect(response.detail == "ok")
+}
+
+@Test func soundSearchSortRawValuesMatchAPIStrings() {
+  #expect(SoundSearchSort.score.rawValue == "score")
+  #expect(SoundSearchSort.downloadsDescending.rawValue == "downloads_desc")
+  #expect(SoundSearchSort.ratingAscending.rawValue == "rating_asc")
+  #expect(SoundSearchSort.allCases.count == 9)
+}
+
 @Test func editSoundUsesOAuthAndSendsOnlySetFields() async throws {
   let mockSession = MockHTTPClient { request in
     #expect(request.httpMethod == "POST")
