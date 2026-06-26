@@ -333,18 +333,52 @@ public final class FreesoundClient: Sendable {
         "Sound \(sound.id) has no preview URLs; include \"previews\" in the requested fields."
       )
     }
-    let previewURL: URL? =
-      switch format {
-      case .hqMP3: previews.previewHQMP3
-      case .lqMP3: previews.previewLQMP3
-      case .hqOGG: previews.previewHQOGG
-      case .lqOGG: previews.previewLQOGG
-      }
-    guard let previewURL else {
+    guard let previewURL = previews.url(for: format) else {
       throw FreesoundError.invalidInput(
         "Sound \(sound.id) has no \(format) preview URL.")
     }
-    return try await sendData(url: previewURL, applyAuthentication: false)
+    return try await downloadAsset(at: previewURL)
+  }
+
+  /// Downloads a visualization image (waveform or spectrogram) for a sound.
+  ///
+  /// Image files are public, so this works with any ``authentication`` — like
+  /// ``downloadPreview(for:format:)`` and unlike ``downloadOriginalSound(id:)``.
+  /// - Parameters:
+  ///   - sound: The sound to fetch an image of. Its ``Sound/images`` must be
+  ///     populated (include `images` in the requested `fields`).
+  ///   - type: The image to fetch. Defaults to the medium waveform.
+  /// - Returns: The raw image data (PNG for waveforms, JPEG for spectrograms).
+  /// - Throws: ``FreesoundError/invalidInput(_:)`` if the sound has no URL for
+  ///   the requested image, or another ``FreesoundError`` if the request fails.
+  public func downloadImage(for sound: Sound, type: SoundImageType = .waveformM)
+    async throws -> Data
+  {
+    guard let images = sound.images else {
+      throw FreesoundError.invalidInput(
+        "Sound \(sound.id) has no image URLs; include \"images\" in the requested fields."
+      )
+    }
+    guard let imageURL = images.url(for: type) else {
+      throw FreesoundError.invalidInput(
+        "Sound \(sound.id) has no \(type) image URL.")
+    }
+    return try await downloadAsset(at: imageURL)
+  }
+
+  /// Downloads a public Freesound asset (preview audio, waveform/spectrogram
+  /// image, or avatar) directly by its URL, without authentication.
+  ///
+  /// These URLs come from already-decoded models (``Sound/previews``,
+  /// ``Sound/images``, ``User/avatar``) and are served from Freesound's public
+  /// CDN. This is the primitive ``FreesoundAssetCache`` fetches through; prefer
+  /// the typed ``downloadPreview(for:format:)`` / ``downloadImage(for:type:)``
+  /// helpers when you have a ``Sound`` in hand.
+  /// - Parameter url: The asset URL to fetch.
+  /// - Returns: The raw asset data.
+  /// - Throws: A ``FreesoundError`` if the request fails.
+  public func downloadAsset(at url: URL) async throws -> Data {
+    try await sendData(url: url, applyAuthentication: false)
   }
 
   /// Uploads an audio file to the authenticated user's account.

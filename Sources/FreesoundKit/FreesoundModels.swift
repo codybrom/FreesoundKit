@@ -376,6 +376,16 @@ public struct SoundPreviews: Codable, Sendable, Equatable, Hashable {
     self.previewHQOGG = previewHQOGG
     self.previewLQOGG = previewLQOGG
   }
+
+  /// The URL for a given preview encoding, or `nil` if this sound has none for it.
+  public func url(for format: SoundPreviewFormat) -> URL? {
+    switch format {
+    case .hqMP3: previewHQMP3
+    case .lqMP3: previewLQMP3
+    case .hqOGG: previewHQOGG
+    case .lqOGG: previewLQOGG
+    }
+  }
 }
 
 /// A preview encoding offered by ``SoundPreviews``, used with
@@ -424,6 +434,34 @@ public struct SoundImages: Codable, Sendable, Equatable, Hashable {
     self.spectralL = spectralL
     self.spectralM = spectralM
   }
+
+  /// The URL for a given image type, or `nil` if this sound has none for it.
+  public func url(for type: SoundImageType) -> URL? {
+    switch type {
+    case .waveformL: waveformL
+    case .waveformM: waveformM
+    case .spectralL: spectralL
+    case .spectralM: spectralM
+    }
+  }
+}
+
+/// A visualization image offered by ``SoundImages``, used with
+/// ``FreesoundClient/downloadImage(for:type:)`` and
+/// ``FreesoundAssetCache/imageData(for:type:)``.
+///
+/// The server also returns `*_bw_*` keys, but its source documents them as
+/// backward-compatibility duplicates of these — identical image bytes — so they
+/// are intentionally not modeled as distinct types.
+public enum SoundImageType: Sendable, Equatable, Hashable, CaseIterable {
+  /// Large waveform (`waveform_l`).
+  case waveformL
+  /// Medium waveform (`waveform_m`).
+  case waveformM
+  /// Large spectrogram (`spectral_l`).
+  case spectralL
+  /// Medium spectrogram (`spectral_m`).
+  case spectralM
 }
 
 public struct SoundAnalysis: Codable, Sendable, Equatable, Hashable {

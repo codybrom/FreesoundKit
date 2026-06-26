@@ -898,6 +898,39 @@ import Testing
   #expect(roundTripped.results.last?.descriptors.bpm == 100)
 }
 
+// MARK: - Image download
+
+@Test func downloadImageFetchesImageWithoutAuth() async throws {
+  let imageURLString = "https://cdn.freesound.org/displays/7/7_1_wave_M.png"
+  let soundJSON = #"{"id":7,"images":{"waveform_m":"\#(imageURLString)"}}"#
+  let sound = try JSONDecoder().decode(Sound.self, from: Data(soundJSON.utf8))
+
+  let png = Data([0x89, 0x50, 0x4E, 0x47])
+  let mockSession = MockHTTPClient { request in
+    #expect(request.url?.absoluteString == imageURLString)
+    #expect(request.value(forHTTPHeaderField: "Authorization") == nil)
+    return (png, makeResponse())
+  }
+
+  let client = FreesoundClient(authentication: .apiKey("k"), session: mockSession)
+  let data = try await client.downloadImage(for: sound, type: .waveformM)
+  #expect(data == png)
+}
+
+@Test func downloadImageWithoutImagesThrowsInvalidInput() async throws {
+  let sound = try JSONDecoder().decode(Sound.self, from: Data(#"{"id":7}"#.utf8))
+  let client = FreesoundClient(session: MockHTTPClient.unused)
+  do {
+    _ = try await client.downloadImage(for: sound, type: .spectralL)
+    Issue.record("Expected invalidInput error")
+  } catch let error as FreesoundError {
+    guard case .invalidInput = error else {
+      Issue.record("Expected invalidInput, got \(error)")
+      return
+    }
+  }
+}
+
 private struct UnexpectedHTTPCall: Error {}
 
 private final class MockHTTPClient: FreesoundHTTPClient, @unchecked Sendable {
