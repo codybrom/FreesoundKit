@@ -2,9 +2,9 @@
 
 All notable changes to FreesoundKit are documented in this file. This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.3.0] - 2026-06-26
 
-Audited the full client surface against the Freesound server source (`apiv2/urls.py`, `views.py`, `serializers.py`). Coverage was already near-complete; this closes the remaining gaps.
+Audited the full client surface against the Freesound server source (`apiv2/urls.py`, `views.py`, `serializers.py`) and verified the models against the live API. Coverage was already near-complete; this closes the remaining gaps.
 
 ### Added
 
