@@ -74,6 +74,18 @@ let page = try await client.withRateLimitRetry {
 }
 ```
 
+### Caching results
+
+Every response model is `Codable`, so you can persist results between launches or build snapshot-test
+fixtures with `JSONEncoder`/`JSONDecoder`. Encoding mirrors the API's response shape — including the
+descriptor fields that ``Sound`` and ``SoundAnalysis`` flatten to the top level — so a round-trip is
+lossless. ``PagedResponse`` is encodable whenever its element type is.
+
+```swift
+let data = try JSONEncoder().encode(sound)
+let restored = try JSONDecoder().decode(Sound.self, from: data)
+```
+
 ## Topics
 
 ### Essentials

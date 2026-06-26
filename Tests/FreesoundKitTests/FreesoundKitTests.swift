@@ -773,6 +773,131 @@ import Testing
   }
 }
 
+// MARK: - Codable round-trips (models are now persistable to disk)
+
+@Test func soundRoundTripsThroughCodable() throws {
+  let json = #"""
+    {"id":7,"name":"Kick","url":"https://freesound.org/s/7/","tags":["drum","kick"],
+     "license":"https://creativecommons.org/publicdomain/zero/1.0/","type":"wav",
+     "duration":0.5,"category":"Music","subcategory":"Percussion","category_code":"mu-perc",
+     "previews":{"preview-hq-mp3":"https://freesound.org/data/previews/7/7_hq.mp3"},
+     "images":{"waveform_m":"https://freesound.org/data/displays/7/7_wave_M.png"},
+     "num_downloads":10,"avg_rating":4.5,"num_ratings":6,"num_comments":2,
+     "brightness":42.5,"bpm":120,"loopable":true,"tonality":"C minor",
+     "beat_times":[0.1,0.2],"note_name":"C3"}
+    """#
+  let original = try JSONDecoder().decode(Sound.self, from: Data(json.utf8))
+  let roundTripped = try JSONDecoder().decode(Sound.self, from: JSONEncoder().encode(original))
+  // Exact equality covers every keyed field AND the flattened descriptors.
+  #expect(roundTripped == original)
+  #expect(roundTripped.descriptors.bpm == 120)
+  #expect(roundTripped.descriptors.beatTimes == [0.1, 0.2])
+  #expect(roundTripped.previews?.previewHQMP3 != nil)
+  #expect(roundTripped.images?.waveformM != nil)
+}
+
+@Test func soundAnalysisRoundTripsThroughCodable() throws {
+  let original = try JSONDecoder().decode(
+    SoundAnalysis.self, from: Data(#"{"loudness":-23.1,"single_event":true,"bpm":90}"#.utf8))
+  let roundTripped = try JSONDecoder().decode(
+    SoundAnalysis.self, from: JSONEncoder().encode(original))
+  #expect(roundTripped == original)
+  #expect(roundTripped.descriptors.loudness == -23.1)
+  #expect(roundTripped.descriptors.singleEvent == true)
+}
+
+@Test func meRoundTripsThroughCodable() throws {
+  // Exercises the lenient-URL fields: synthesized encoding writes URLs as the strings the custom
+  // decoder reads back, so the round-trip must be exact.
+  let json = """
+    {"url":"https://freesound.org/people/blankie.rest/","username":"blankie.rest",
+     "about":"hello","home_page":"https://blankie.rest",
+     "avatar":{"small":"https://freesound.org/data/avatars/1/1_S.jpg",
+               "medium":"https://freesound.org/data/avatars/1/1_M.jpg",
+               "large":"https://freesound.org/data/avatars/1/1_L.jpg"},
+     "date_joined":"2024-03-21T23:48:08.384002+01:00","num_sounds":1,
+     "sounds":"https://freesound.org/apiv2/users/blankie.rest/sounds/","num_packs":0,
+     "num_comments":1,"email":"user@example.com","unique_id":15820073,
+     "bookmark_categories":"https://freesound.org/apiv2/me/bookmark_categories/"}
+    """
+  let original = try JSONDecoder().decode(Me.self, from: Data(json.utf8))
+  let roundTripped = try JSONDecoder().decode(Me.self, from: JSONEncoder().encode(original))
+  #expect(roundTripped == original)
+  #expect(roundTripped.homepage == URL(string: "https://blankie.rest"))
+  #expect(
+    roundTripped.avatar?.large == URL(string: "https://freesound.org/data/avatars/1/1_L.jpg"))
+}
+
+@Test func userRoundTripsThroughCodable() throws {
+  // `home_page:""` exercises the lenient-URL path: the empty string decodes to nil, so the
+  // re-encoded JSON omits the key and the second decode must land on the same nil value.
+  let json = """
+    {"username":"sampleuser","url":"https://freesound.org/people/sampleuser/",
+     "about":"hi","home_page":"","ai_preference":"allow",
+     "avatar":{"small":"https://freesound.org/data/avatars/2/2_S.jpg","medium":null,"large":null},
+     "date_joined":"2024-03-21T23:48:08.384002+01:00","num_sounds":3,"num_packs":1,
+     "num_posts":2,"sounds":"https://freesound.org/apiv2/users/sampleuser/sounds/",
+     "packs":"https://freesound.org/apiv2/users/sampleuser/packs/","num_comments":4}
+    """
+  let original = try JSONDecoder().decode(User.self, from: Data(json.utf8))
+  let roundTripped = try JSONDecoder().decode(User.self, from: JSONEncoder().encode(original))
+  #expect(roundTripped == original)
+  #expect(roundTripped.homepage == nil)
+  #expect(roundTripped.avatar?.small == URL(string: "https://freesound.org/data/avatars/2/2_S.jpg"))
+  #expect(roundTripped.avatar?.medium == nil)
+}
+
+@Test func realAPIResponseRoundTripsThroughCodable() throws {
+  // Captured verbatim from a live GET /sounds/14854/?fields=...,bpm,loudness,beat_times,tonality,
+  // single_event,birdnet_detections,fsdsinet_detections (beat_times truncated). Proves an actual
+  // server response — flattened descriptors, dash-keyed previews, CDN preview URLs, nested
+  // detection arrays — survives decode → encode → decode by value.
+  let json = #"""
+    {"id":14854,"name":"reinsamba at the nightingales feet 2.wav",
+     "url":"https://freesound.org/people/reinsamba/sounds/14854/",
+     "tags":["field-recording","nightingale","nature","bird"],
+     "license":"https://creativecommons.org/licenses/by/4.0/","type":"wav","duration":136.515,
+     "category":"Soundscapes","subcategory":"Animals",
+     "previews":{"preview-hq-mp3":"https://cdn.freesound.org/previews/14/14854_18799-hq.mp3",
+                 "preview-hq-ogg":"https://cdn.freesound.org/previews/14/14854_18799-hq.ogg",
+                 "preview-lq-mp3":"https://cdn.freesound.org/previews/14/14854_18799-lq.mp3",
+                 "preview-lq-ogg":"https://cdn.freesound.org/previews/14/14854_18799-lq.ogg"},
+     "images":{"waveform_l":"https://cdn.freesound.org/displays/14/14854_18799_wave_L.png",
+               "waveform_m":"https://cdn.freesound.org/displays/14/14854_18799_wave_M.png",
+               "spectral_l":"https://cdn.freesound.org/displays/14/14854_18799_spec_L.jpg",
+               "spectral_m":"https://cdn.freesound.org/displays/14/14854_18799_spec_M.jpg"},
+     "num_downloads":50871,"avg_rating":4.5,"bpm":135,"brightness":null,"loudness":-20.71,
+     "beat_times":[0.476,0.952,1.428,1.904],"tonality":"B major","single_event":false,
+     "birdnet_detections":[{"end_time":27.0,"confidence":1.0,"start_time":0.0,
+                            "common_name":"Common Nightingale","scientific_name":"Luscinia megarhynchos"}],
+     "fsdsinet_detections":[{"name":"Animal","end_time":9.5,"confidence":0.91,"start_time":0.0}]}
+    """#
+  let original = try JSONDecoder().decode(Sound.self, from: Data(json.utf8))
+  let roundTripped = try JSONDecoder().decode(Sound.self, from: JSONEncoder().encode(original))
+  #expect(roundTripped == original)
+  // Spot-check that the flattened descriptors and shared category keys survived intact.
+  #expect(roundTripped.category == "Soundscapes")
+  #expect(roundTripped.descriptors.bpm == 135)
+  #expect(roundTripped.descriptors.tonality == "B major")
+  #expect(roundTripped.descriptors.beatTimes == [0.476, 0.952, 1.428, 1.904])
+  #expect(roundTripped.descriptors.birdnetDetections?.first?.commonName == "Common Nightingale")
+  #expect(roundTripped.descriptors.fsdsinetDetections?.first?.name == "Animal")
+  #expect(roundTripped.previews?.previewHQMP3?.host == "cdn.freesound.org")
+}
+
+@Test func pagedResponseOfSoundRoundTripsThroughCodable() throws {
+  // Verifies the conditional `Encodable where Item: Encodable` conformance.
+  let json = #"""
+    {"count":2,"next":null,"previous":null,
+     "results":[{"id":1,"name":"One"},{"id":2,"name":"Two","bpm":100}]}
+    """#
+  let original = try JSONDecoder().decode(PagedResponse<Sound>.self, from: Data(json.utf8))
+  let roundTripped = try JSONDecoder().decode(
+    PagedResponse<Sound>.self, from: JSONEncoder().encode(original))
+  #expect(roundTripped == original)
+  #expect(roundTripped.results.last?.descriptors.bpm == 100)
+}
+
 private struct UnexpectedHTTPCall: Error {}
 
 private final class MockHTTPClient: FreesoundHTTPClient, @unchecked Sendable {

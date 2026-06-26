@@ -23,13 +23,14 @@ public struct PagedResponse<Item: Decodable & Sendable>: Decodable, Sendable {
 
 extension PagedResponse: Equatable where Item: Equatable {}
 extension PagedResponse: Hashable where Item: Hashable {}
+extension PagedResponse: Encodable where Item: Encodable {}
 
 /// The response from ``FreesoundClient/combinedSearch(parameters:)``.
 ///
 /// Combined search does not report a total count, and pagination works through
 /// the ``more`` link rather than page numbers. Fetch further results with
 /// ``FreesoundClient/moreResults(of:)``.
-public struct CombinedSearchResponse: Decodable, Sendable, Equatable, Hashable {
+public struct CombinedSearchResponse: Codable, Sendable, Equatable, Hashable {
   public let results: [Sound]
   /// A link to the next batch of results, or `nil` when there are no more.
   public let more: String?
@@ -40,7 +41,7 @@ public struct CombinedSearchResponse: Decodable, Sendable, Equatable, Hashable {
   }
 }
 
-public struct APIStatusResponse: Decodable, Sendable, Equatable, Hashable {
+public struct APIStatusResponse: Codable, Sendable, Equatable, Hashable {
   public let detail: String?
   public let status: String?
 
@@ -50,7 +51,7 @@ public struct APIStatusResponse: Decodable, Sendable, Equatable, Hashable {
   }
 }
 
-public struct OAuthTokenResponse: Decodable, Sendable, Equatable, Hashable {
+public struct OAuthTokenResponse: Codable, Sendable, Equatable, Hashable {
   public let accessToken: String
   public let scope: String?
   public let expiresIn: Int
@@ -71,7 +72,7 @@ public struct OAuthTokenResponse: Decodable, Sendable, Equatable, Hashable {
   }
 }
 
-public struct Sound: Decodable, Sendable, Equatable, Hashable, Identifiable {
+public struct Sound: Codable, Sendable, Equatable, Hashable, Identifiable {
   public let id: Int
   public let url: URL?
   public let name: String?
@@ -209,6 +210,57 @@ public struct Sound: Decodable, Sendable, Equatable, Hashable, Identifiable {
     descriptors = try SoundDescriptors(from: decoder)
   }
 
+  /// Encodes back into the API's flattened shape — the keyed sound fields plus the analysis
+  /// ``descriptors`` written as siblings at the top level — so a `Codable` round-trip reproduces the
+  /// original JSON and a `Sound` can be persisted (e.g. to an on-disk cache). Descriptors are written
+  /// first so the sound's own ``category``/``subcategory`` win the JSON keys they share with
+  /// ``SoundDescriptors`` (API-decoded values always agree, so they round-trip exactly).
+  public func encode(to encoder: Encoder) throws {
+    try descriptors.encode(to: encoder)
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(id, forKey: .id)
+    try container.encodeIfPresent(url, forKey: .url)
+    try container.encodeIfPresent(name, forKey: .name)
+    try container.encodeIfPresent(tags, forKey: .tags)
+    try container.encodeIfPresent(description, forKey: .description)
+    try container.encodeIfPresent(category, forKey: .category)
+    try container.encodeIfPresent(subcategory, forKey: .subcategory)
+    try container.encodeIfPresent(categoryCode, forKey: .categoryCode)
+    try container.encodeIfPresent(categoryIsUserProvided, forKey: .categoryIsUserProvided)
+    try container.encodeIfPresent(geotag, forKey: .geotag)
+    try container.encodeIfPresent(isGeotagged, forKey: .isGeotagged)
+    try container.encodeIfPresent(created, forKey: .created)
+    try container.encodeIfPresent(license, forKey: .license)
+    try container.encodeIfPresent(aiPreference, forKey: .aiPreference)
+    try container.encodeIfPresent(type, forKey: .type)
+    try container.encodeIfPresent(channels, forKey: .channels)
+    try container.encodeIfPresent(filesize, forKey: .filesize)
+    try container.encodeIfPresent(bitrate, forKey: .bitrate)
+    try container.encodeIfPresent(bitdepth, forKey: .bitdepth)
+    try container.encodeIfPresent(duration, forKey: .duration)
+    try container.encodeIfPresent(samplerate, forKey: .samplerate)
+    try container.encodeIfPresent(username, forKey: .username)
+    try container.encodeIfPresent(md5, forKey: .md5)
+    try container.encodeIfPresent(isRemix, forKey: .isRemix)
+    try container.encodeIfPresent(wasRemixed, forKey: .wasRemixed)
+    try container.encodeIfPresent(isExplicit, forKey: .isExplicit)
+    try container.encodeIfPresent(pack, forKey: .pack)
+    try container.encodeIfPresent(packName, forKey: .packName)
+    try container.encodeIfPresent(download, forKey: .download)
+    try container.encodeIfPresent(bookmark, forKey: .bookmark)
+    try container.encodeIfPresent(previews, forKey: .previews)
+    try container.encodeIfPresent(images, forKey: .images)
+    try container.encodeIfPresent(numDownloads, forKey: .numDownloads)
+    try container.encodeIfPresent(avgRating, forKey: .avgRating)
+    try container.encodeIfPresent(numRatings, forKey: .numRatings)
+    try container.encodeIfPresent(rate, forKey: .rate)
+    try container.encodeIfPresent(comments, forKey: .comments)
+    try container.encodeIfPresent(numComments, forKey: .numComments)
+    try container.encodeIfPresent(comment, forKey: .comment)
+    try container.encodeIfPresent(similarSounds, forKey: .similarSounds)
+    try container.encodeIfPresent(analysisFiles, forKey: .analysisFiles)
+  }
+
   /// Memberwise initializer. Useful for building fixtures in tests and SwiftUI
   /// previews; only `id` is required.
   public init(
@@ -300,7 +352,7 @@ public struct Sound: Decodable, Sendable, Equatable, Hashable, Identifiable {
   }
 }
 
-public struct SoundPreviews: Decodable, Sendable, Equatable, Hashable {
+public struct SoundPreviews: Codable, Sendable, Equatable, Hashable {
   public let previewHQMP3: URL?
   public let previewLQMP3: URL?
   public let previewHQOGG: URL?
@@ -348,7 +400,7 @@ public enum SimilaritySpace: String, Sendable, Equatable, Hashable, CaseIterable
   case freesoundClassic = "freesound_classic"
 }
 
-public struct SoundImages: Decodable, Sendable, Equatable, Hashable {
+public struct SoundImages: Codable, Sendable, Equatable, Hashable {
   public let waveformL: URL?
   public let waveformM: URL?
   public let spectralL: URL?
@@ -374,11 +426,16 @@ public struct SoundImages: Decodable, Sendable, Equatable, Hashable {
   }
 }
 
-public struct SoundAnalysis: Decodable, Sendable, Equatable, Hashable {
+public struct SoundAnalysis: Codable, Sendable, Equatable, Hashable {
   public let descriptors: SoundDescriptors
 
   public init(from decoder: Decoder) throws {
     descriptors = try SoundDescriptors(from: decoder)
+  }
+
+  /// Mirrors ``init(from:)`` by writing the flattened ``descriptors`` at the top level.
+  public func encode(to encoder: Encoder) throws {
+    try descriptors.encode(to: encoder)
   }
 
   public init(descriptors: SoundDescriptors = SoundDescriptors()) {
@@ -387,7 +444,7 @@ public struct SoundAnalysis: Decodable, Sendable, Equatable, Hashable {
 }
 
 /// A single BirdNET species detection from the `birdnet_detections` analysis field.
-public struct BirdNetDetection: Decodable, Sendable, Equatable, Hashable {
+public struct BirdNetDetection: Codable, Sendable, Equatable, Hashable {
   public let commonName: String?
   public let scientificName: String?
   public let startTime: Double?
@@ -415,7 +472,7 @@ public struct BirdNetDetection: Decodable, Sendable, Equatable, Hashable {
 }
 
 /// A single FSD-SINet sound-event detection from the `fsdsinet_detections` analysis field.
-public struct FSDSINetDetection: Decodable, Sendable, Equatable, Hashable {
+public struct FSDSINetDetection: Codable, Sendable, Equatable, Hashable {
   public let name: String?
   public let startTime: Double?
   public let endTime: Double?
@@ -439,7 +496,7 @@ public struct FSDSINetDetection: Decodable, Sendable, Equatable, Hashable {
   }
 }
 
-public struct SoundDescriptors: Decodable, Sendable, Equatable, Hashable {
+public struct SoundDescriptors: Codable, Sendable, Equatable, Hashable {
   public let amplitudePeakRatio: Double?
   public let beatCount: Int?
   public let beatLoudness: Double?
@@ -736,7 +793,7 @@ public struct SoundDescriptors: Decodable, Sendable, Equatable, Hashable {
   }
 }
 
-public struct Comment: Decodable, Sendable, Equatable, Hashable {
+public struct Comment: Codable, Sendable, Equatable, Hashable {
   public let id: Int?
   public let url: URL?
   public let username: String?
@@ -777,7 +834,7 @@ extension KeyedDecodingContainer {
 /// The avatar image URLs returned by the Freesound user serializer. The API
 /// sends `avatar` as an object with three sizes; every field is `nil` when the
 /// user has no avatar (the object is still present, with each value `null`).
-public struct Avatar: Decodable, Sendable, Equatable, Hashable {
+public struct Avatar: Codable, Sendable, Equatable, Hashable {
   public let small: URL?
   public let medium: URL?
   public let large: URL?
@@ -802,7 +859,7 @@ public struct Avatar: Decodable, Sendable, Equatable, Hashable {
   }
 }
 
-public struct User: Decodable, Sendable, Equatable, Hashable, Identifiable {
+public struct User: Codable, Sendable, Equatable, Hashable, Identifiable {
   public let username: String
   public let url: URL?
   public let about: String?
@@ -886,7 +943,7 @@ public struct User: Decodable, Sendable, Equatable, Hashable, Identifiable {
   }
 }
 
-public struct Pack: Decodable, Sendable, Equatable, Hashable, Identifiable {
+public struct Pack: Codable, Sendable, Equatable, Hashable, Identifiable {
   public let id: Int
   public let url: URL?
   public let name: String?
@@ -939,7 +996,7 @@ public struct Pack: Decodable, Sendable, Equatable, Hashable, Identifiable {
   }
 }
 
-public struct Me: Decodable, Sendable, Equatable, Hashable, Identifiable {
+public struct Me: Codable, Sendable, Equatable, Hashable, Identifiable {
   public let username: String
   public let url: URL?
   public let about: String?
@@ -1040,7 +1097,7 @@ public struct Me: Decodable, Sendable, Equatable, Hashable, Identifiable {
   }
 }
 
-public struct BookmarkCategory: Decodable, Sendable, Equatable, Hashable, Identifiable {
+public struct BookmarkCategory: Codable, Sendable, Equatable, Hashable, Identifiable {
   public let id: Int
   public let name: String
   public let url: URL?
@@ -1061,7 +1118,7 @@ public struct BookmarkCategory: Decodable, Sendable, Equatable, Hashable, Identi
   }
 }
 
-public struct PendingUploads: Decodable, Sendable, Equatable, Hashable {
+public struct PendingUploads: Codable, Sendable, Equatable, Hashable {
   /// Filenames of uploaded sounds that still need to be described.
   public let pendingDescription: [String]
   /// Sounds that are described and currently being processed.
@@ -1086,7 +1143,7 @@ public struct PendingUploads: Decodable, Sendable, Equatable, Hashable {
   }
 }
 
-public struct PendingUpload: Decodable, Sendable, Equatable, Hashable {
+public struct PendingUpload: Codable, Sendable, Equatable, Hashable {
   public let id: Int?
   public let filename: String?
   public let originalFilename: String?
@@ -1127,7 +1184,7 @@ public struct PendingUpload: Decodable, Sendable, Equatable, Hashable {
   }
 }
 
-public struct UploadSoundResponse: Decodable, Sendable, Equatable, Hashable {
+public struct UploadSoundResponse: Codable, Sendable, Equatable, Hashable {
   public let id: Int?
   public let filename: String?
   public let detail: String?

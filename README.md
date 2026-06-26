@@ -10,6 +10,7 @@ Unofficial Swift client for the [Freesound API v2](https://freesound.org/docs/ap
 - OAuth2 bearer auth (`Authorization: Bearer ...`)
 - OAuth2 authorization-code + refresh token exchange
 - Typed models for sound metadata + audio descriptor fields
+- `Codable` models you can cache or persist between launches with `JSONEncoder`/`JSONDecoder`
 - A `Sendable` client you can share across tasks and actors
 - Pagination helpers (`nextPage`, `previousPage`, `moreResults`)
 - Preview downloads that work without OAuth (`downloadPreview`)
@@ -94,6 +95,21 @@ let refreshed = try await client.refreshAccessToken(
 - `pack`, `packSounds`, `downloadPack`
 - `me`, `myBookmarkCategories`, `myBookmarkCategorySounds`
 - `oauthAuthorizationURL`, `exchangeAuthorizationCode`, `refreshAccessToken`
+
+## Caching & persistence
+
+All response models conform to `Codable`, so you can cache results in memory or persist them between
+launches with `JSONEncoder`/`JSONDecoder`:
+
+```swift
+// Persist a fetched sound, then restore it later without a network round-trip.
+let data = try JSONEncoder().encode(sound)
+let restored = try JSONDecoder().decode(Sound.self, from: data)
+```
+
+Encoding mirrors the API's response shape — including the audio-descriptor fields that `Sound` and
+`SoundAnalysis` flatten to the top level — so a `decode → encode → decode` round-trip is lossless.
+(`PagedResponse` is encodable whenever its element type is.)
 
 ## Error handling
 
