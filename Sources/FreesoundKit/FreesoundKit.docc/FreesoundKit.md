@@ -150,6 +150,13 @@ let avatar = try await cache.avatarData(for: user.avatar!)
 - ``AvatarSize``
 - ``FreesoundAssetCache``
 
+### Default-avatar monograms
+
+- ``AvatarMonogram``
+- ``RGBColor``
+- ``User/monogram``
+- ``Me/monogram``
+
 ### Uploading and editing
 
 - ``FreesoundClient/uploadSound(fileURL:request:fileFieldName:)``

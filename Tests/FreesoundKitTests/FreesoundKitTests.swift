@@ -1052,6 +1052,44 @@ import Testing
   }
 }
 
+// MARK: - Avatar monograms
+
+@Test func monogramMatchesFreesoundSelection() {
+  // index = (ord(s0) + ord(s1)) % 10 for multi-char names. "reinsamba": 114+101=215 → 5.
+  let monogram = AvatarMonogram(username: "reinsamba")
+  #expect(monogram.letter == "R")
+  #expect(monogram.backgroundColor == AvatarMonogram.palette[5])
+  #expect(monogram.backgroundColor == RGBColor(red: 170, green: 206, blue: 65))
+}
+
+@Test func monogramUsesFirstCharForSingleCharacterNames() {
+  // Single character → ord(s0) % 10. "a" = 97 → 7.
+  let monogram = AvatarMonogram(username: "a")
+  #expect(monogram.letter == "A")
+  #expect(monogram.backgroundColor == AvatarMonogram.palette[7])
+}
+
+@Test func monogramUsesSourceTruncatedPalette() {
+  // "ai": 97+105=202 → index 2. The byte-exact server value is (9,199,113) — the
+  // truncated interpolation, not a rounded (10,200,114).
+  #expect(AvatarMonogram.palette.count == 10)
+  #expect(AvatarMonogram(username: "ai").backgroundColor == RGBColor(red: 9, green: 199, blue: 113))
+}
+
+@Test func monogramHandlesEmptyUsername() {
+  let monogram = AvatarMonogram(username: "")
+  #expect(monogram.letter == "?")
+  #expect(monogram.backgroundColor == nil)
+}
+
+@Test func userAndMeExposeMonograms() throws {
+  let user = try JSONDecoder().decode(User.self, from: Data(#"{"username":"reinsamba"}"#.utf8))
+  let me = try JSONDecoder().decode(Me.self, from: Data(#"{"username":"reinsamba"}"#.utf8))
+  #expect(user.monogram == AvatarMonogram(username: "reinsamba"))
+  #expect(me.monogram == AvatarMonogram(username: "reinsamba"))
+  #expect(user.monogram.backgroundColor?.fractions.red == 170.0 / 255)
+}
+
 private func uniqueTempDirectory() -> URL {
   FileManager.default.temporaryDirectory
     .appendingPathComponent("FreesoundKitCacheTests-\(UUID().uuidString)")

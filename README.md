@@ -15,6 +15,7 @@ Unofficial Swift client for the [Freesound API v2](https://freesound.org/docs/ap
 - Pagination helpers (`nextPage`, `previousPage`, `moreResults`)
 - Preview downloads that work without OAuth (`downloadPreview`)
 - Disk-backed asset cache for previews, images, and avatars (`FreesoundAssetCache`)
+- Default-avatar monograms matching freesound.org (`AvatarMonogram`)
 
 ## Requirements
 
@@ -136,6 +137,20 @@ directory — `removeAll()` deletes it wholesale, so give it a dedicated folder.
 > Freesound also returns `*_bw_*` image keys, but its source documents them as byte-identical
 > duplicates of the standard waveform/spectrogram images, so `SoundImageType` models only the four
 > distinct images.
+
+### Default-avatar monograms
+
+When a user has no avatar, Freesound renders a letter monogram over a palette color. `AvatarMonogram`
+reproduces that exact selection (matching `bw_user_avatar` + `AVATAR_BG_COLORS` in the server source),
+so your fallback matches the website — no network request, all platforms:
+
+```swift
+let monogram = user.monogram                 // also me.monogram, or AvatarMonogram(username:)
+let letter = monogram.letter                 // "R"
+if let rgb = monogram.backgroundColor {      // nil only for an empty username
+    let (r, g, b) = rgb.fractions            // 0...1, e.g. SwiftUI Color(red: r, green: g, blue: b)
+}
+```
 
 ## Error handling
 
