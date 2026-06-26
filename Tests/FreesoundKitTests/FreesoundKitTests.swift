@@ -931,6 +931,168 @@ import Testing
   }
 }
 
+// MARK: - FreesoundAssetCache
+
+@Test func assetCacheFetchesOnceThenServesFromDisk() async throws {
+  let dir = uniqueTempDirectory()
+  defer { try? FileManager.default.removeItem(at: dir) }
+  let counter = CallCounter()
+  let payload = Data([0x01, 0x02, 0x03])
+  let cache = FreesoundAssetCache(directory: dir, maxByteSize: 0) { _ in
+    await counter.increment()
+    return payload
+  }
+  let url = URL(string: "https://cdn.freesound.org/previews/7/7-hq.mp3")!
+
+  let first = try await cache.data(for: url)
+  let second = try await cache.data(for: url)
+
+  #expect(first == payload)
+  #expect(second == payload)
+  #expect(await counter.count == 1)  // second call served from disk
+  #expect(await cache.contains(url))
+}
+
+@Test func assetCacheDeDuplicatesConcurrentFetches() async throws {
+  let dir = uniqueTempDirectory()
+  defer { try? FileManager.default.removeItem(at: dir) }
+  let counter = CallCounter()
+  let gate = TestGate()
+  let payload = Data([0xAA])
+  let cache = FreesoundAssetCache(directory: dir, maxByteSize: 0) { _ in
+    await counter.increment()
+    await gate.markStarted()
+    await gate.waitUntilOpen()
+    return payload
+  }
+  let url = URL(string: "https://cdn.freesound.org/previews/9/9-hq.mp3")!
+
+  async let a = cache.data(for: url)
+  await gate.waitUntilStarted()  // the one fetch is now in flight and registered
+  async let b = cache.data(for: url)
+  async let c = cache.data(for: url)
+  await gate.open()
+
+  let results = try await [a, b, c]
+  #expect(results.allSatisfy { $0 == payload })
+  #expect(await counter.count == 1)  // three concurrent reads, a single download
+}
+
+@Test func assetCacheEvictsLeastRecentlyUsedOverBudget() async throws {
+  let dir = uniqueTempDirectory()
+  defer { try? FileManager.default.removeItem(at: dir) }
+  let payload = Data(repeating: 0x7, count: 6)  // each asset is 6 bytes
+  let cache = FreesoundAssetCache(directory: dir, maxByteSize: 10) { _ in payload }
+  let first = URL(string: "https://cdn.freesound.org/a")!
+  let second = URL(string: "https://cdn.freesound.org/b")!
+
+  _ = try await cache.data(for: first)
+  try await Task.sleep(for: .milliseconds(10))  // ensure `first` is the older entry
+  _ = try await cache.data(for: second)  // 12 > 10 budget → evict `first`
+
+  #expect(await cache.contains(second))
+  #expect(!(await cache.contains(first)))
+  #expect(await cache.totalDiskBytes() <= 10)
+}
+
+@Test func assetCacheCachesAvatars() async throws {
+  let dir = uniqueTempDirectory()
+  defer { try? FileManager.default.removeItem(at: dir) }
+  let counter = CallCounter()
+  let png = Data([0x89, 0x50])
+  let cache = FreesoundAssetCache(directory: dir, maxByteSize: 0) { _ in
+    await counter.increment()
+    return png
+  }
+  let avatar = try JSONDecoder().decode(
+    Avatar.self,
+    from: Data(#"{"large":"https://cdn.freesound.org/avatars/1/1_L.jpg"}"#.utf8))
+
+  let bytes = try await cache.avatarData(for: avatar, size: .large)
+  _ = try await cache.avatarData(for: avatar, size: .large)
+
+  #expect(bytes == png)
+  #expect(await counter.count == 1)
+}
+
+@Test func assetCacheCachesUserAndMeAvatars() async throws {
+  let dir = uniqueTempDirectory()
+  defer { try? FileManager.default.removeItem(at: dir) }
+  let counter = CallCounter()
+  let png = Data([0x89, 0x50])
+  let cache = FreesoundAssetCache(directory: dir, maxByteSize: 0) { _ in
+    await counter.increment()
+    return png
+  }
+  let avatarJSON = #"{"medium":"https://cdn.freesound.org/avatars/2/2_M.jpg"}"#
+  let user = try JSONDecoder().decode(
+    User.self, from: Data(#"{"username":"u","avatar":\#(avatarJSON)}"#.utf8))
+  let me = try JSONDecoder().decode(
+    Me.self, from: Data(#"{"username":"u","avatar":\#(avatarJSON)}"#.utf8))
+
+  // Both overloads resolve to the same avatar URL, so the second is a disk hit.
+  #expect(try await cache.avatarData(for: user) == png)
+  #expect(try await cache.avatarData(for: me) == png)
+  #expect(await counter.count == 1)
+}
+
+@Test func assetCacheUserWithoutAvatarThrowsInvalidInput() async throws {
+  let dir = uniqueTempDirectory()
+  defer { try? FileManager.default.removeItem(at: dir) }
+  let cache = FreesoundAssetCache(directory: dir, maxByteSize: 0) { _ in Data() }
+  let user = try JSONDecoder().decode(User.self, from: Data(#"{"username":"u"}"#.utf8))
+  do {
+    _ = try await cache.avatarData(for: user)
+    Issue.record("Expected invalidInput error")
+  } catch let error as FreesoundError {
+    guard case .invalidInput = error else {
+      Issue.record("Expected invalidInput, got \(error)")
+      return
+    }
+  }
+}
+
+private func uniqueTempDirectory() -> URL {
+  FileManager.default.temporaryDirectory
+    .appendingPathComponent("FreesoundKitCacheTests-\(UUID().uuidString)")
+}
+
+private actor CallCounter {
+  private(set) var count = 0
+  func increment() { count += 1 }
+}
+
+/// A two-phase signal for deterministic concurrency tests: the in-flight fetch
+/// reports it has *started*, and the test later *opens* the gate to let it finish.
+private actor TestGate {
+  private var started = false
+  private var startWaiters: [CheckedContinuation<Void, Never>] = []
+  private var opened = false
+  private var openWaiters: [CheckedContinuation<Void, Never>] = []
+
+  func markStarted() {
+    started = true
+    for waiter in startWaiters { waiter.resume() }
+    startWaiters.removeAll()
+  }
+
+  func waitUntilStarted() async {
+    if started { return }
+    await withCheckedContinuation { startWaiters.append($0) }
+  }
+
+  func open() {
+    opened = true
+    for waiter in openWaiters { waiter.resume() }
+    openWaiters.removeAll()
+  }
+
+  func waitUntilOpen() async {
+    if opened { return }
+    await withCheckedContinuation { openWaiters.append($0) }
+  }
+}
+
 private struct UnexpectedHTTPCall: Error {}
 
 private final class MockHTTPClient: FreesoundHTTPClient, @unchecked Sendable {

@@ -86,6 +86,20 @@ let data = try JSONEncoder().encode(sound)
 let restored = try JSONDecoder().decode(Sound.self, from: data)
 ```
 
+### Caching binary assets
+
+Models carry only URLs for previews, images, and avatars. Cache the bytes those URLs point at with
+``FreesoundAssetCache`` — a disk-backed actor that downloads on a miss, serves from disk on a hit,
+de-duplicates concurrent requests, and evicts least-recently-used files to stay under a byte budget.
+
+```swift
+let cache = FreesoundAssetCache(
+    client: client,
+    directory: URL.cachesDirectory.appending(path: "freesound-assets"))
+let waveform = try await cache.imageData(for: sound)
+let avatar = try await cache.avatarData(for: user.avatar!)
+```
+
 ## Topics
 
 ### Essentials
@@ -127,6 +141,14 @@ let restored = try JSONDecoder().decode(Sound.self, from: data)
 - ``FreesoundClient/downloadOriginalSound(id:)``
 - ``FreesoundClient/downloadPack(id:)``
 - ``SoundPreviewFormat``
+
+### Downloading and caching images & assets
+
+- ``FreesoundClient/downloadImage(for:type:)``
+- ``FreesoundClient/downloadAsset(at:)``
+- ``SoundImageType``
+- ``AvatarSize``
+- ``FreesoundAssetCache``
 
 ### Uploading and editing
 

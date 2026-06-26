@@ -895,6 +895,26 @@ public struct Avatar: Codable, Sendable, Equatable, Hashable {
     medium = try container.decodeLenientURL(forKey: .medium)
     large = try container.decodeLenientURL(forKey: .large)
   }
+
+  /// The URL for a given avatar size, or `nil` if the user has no avatar.
+  public func url(for size: AvatarSize) -> URL? {
+    switch size {
+    case .small: small
+    case .medium: medium
+    case .large: large
+    }
+  }
+}
+
+/// An avatar size offered by ``Avatar``, used with
+/// ``FreesoundAssetCache/avatarData(for:size:)``. Maps to the server's `S`/`M`/`L`.
+public enum AvatarSize: Sendable, Equatable, Hashable, CaseIterable {
+  /// Small avatar (`S`).
+  case small
+  /// Medium avatar (`M`).
+  case medium
+  /// Large avatar (`L`).
+  case large
 }
 
 public struct User: Codable, Sendable, Equatable, Hashable, Identifiable {

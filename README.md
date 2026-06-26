@@ -14,6 +14,7 @@ Unofficial Swift client for the [Freesound API v2](https://freesound.org/docs/ap
 - A `Sendable` client you can share across tasks and actors
 - Pagination helpers (`nextPage`, `previousPage`, `moreResults`)
 - Preview downloads that work without OAuth (`downloadPreview`)
+- Disk-backed asset cache for previews, images, and avatars (`FreesoundAssetCache`)
 
 ## Requirements
 
@@ -110,6 +111,31 @@ let restored = try JSONDecoder().decode(Sound.self, from: data)
 Encoding mirrors the API's response shape — including the audio-descriptor fields that `Sound` and
 `SoundAnalysis` flatten to the top level — so a `decode → encode → decode` round-trip is lossless.
 (`PagedResponse` is encodable whenever its element type is.)
+
+### Caching binary assets
+
+Models carry only URLs for previews, waveforms/spectrograms, and avatars. To cache the *bytes*, use
+`FreesoundAssetCache` — a disk-backed actor that downloads on a miss, serves from disk on a hit,
+de-duplicates concurrent requests for the same URL, and evicts least-recently-used files to stay
+under a byte budget:
+
+```swift
+let cache = FreesoundAssetCache(
+    client: client,
+    directory: URL.cachesDirectory.appending(path: "freesound-assets"))
+
+let waveform = try await cache.imageData(for: sound)          // .waveformM by default
+let preview  = try await cache.previewData(for: sound)        // .hqMP3 by default
+let avatar   = try await cache.avatarData(for: user.avatar!)  // works for User and Me
+```
+
+Fetch any asset URL directly with `cache.data(for: url)` (or, without a cache,
+`client.downloadAsset(at:)` / the typed `client.downloadImage(for:type:)`). The cache owns its
+directory — `removeAll()` deletes it wholesale, so give it a dedicated folder.
+
+> Freesound also returns `*_bw_*` image keys, but its source documents them as byte-identical
+> duplicates of the standard waveform/spectrogram images, so `SoundImageType` models only the four
+> distinct images.
 
 ## Error handling
 
