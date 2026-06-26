@@ -287,6 +287,39 @@ import Testing
   #expect(SoundSearchSort.allCases.count == 9)
 }
 
+@Test func soundLicenseRawValuesMatchAPIChoices() {
+  // The server's LICENSE_CHOICES are an exact-match set, so the spellings matter.
+  #expect(SoundLicense.attribution.rawValue == "Attribution")
+  #expect(SoundLicense.attributionNonCommercial.rawValue == "Attribution NonCommercial")
+  #expect(SoundLicense.creativeCommons0.rawValue == "Creative Commons 0")
+  #expect(SoundLicense.allCases.count == 3)
+}
+
+@Test func describeSendsLicenseRawValueAndCommaSeparatedGeotag() async throws {
+  let mockSession = MockHTTPClient { request in
+    #expect(request.httpMethod == "POST")
+    #expect(request.url?.path == "/apiv2/sounds/describe")
+    let body = String(data: request.httpBody ?? Data(), encoding: .utf8) ?? ""
+    #expect(body.contains("upload_filename=clip.wav"))
+    // License raw value flows through (space-encoded as '+').
+    #expect(body.contains("license=Creative+Commons+0"))
+    // Geotag keeps its comma-separated write format ('+'-free, comma as %2C).
+    #expect(body.contains("geotag=41.4%2C2.18%2C16"))
+    return (Data(#"{"detail":"ok"}"#.utf8), makeResponse(status: 201))
+  }
+
+  let client = FreesoundClient(authentication: .oauthToken("oauth-token"), session: mockSession)
+  let response = try await client.describeSound(
+    request: SoundDescribeRequest(
+      uploadFilename: "clip.wav",
+      bstCategory: "fx-other",
+      tags: ["one", "two", "three"],
+      description: "A clip",
+      license: SoundLicense.creativeCommons0.rawValue,
+      geotag: "41.4,2.18,16"))
+  #expect(response.detail == "ok")
+}
+
 @Test func editSoundUsesOAuthAndSendsOnlySetFields() async throws {
   let mockSession = MockHTTPClient { request in
     #expect(request.httpMethod == "POST")

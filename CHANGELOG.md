@@ -13,10 +13,13 @@ Audited the full client surface against the Freesound server source (`apiv2/urls
 - **`BookmarkCategory.sounds`** — the category's sounds URL, emitted by the bookmark-category serializer.
 - **`SoundSearchSort`** — a typed enum of the `sort` values accepted by `textSearch`. The API silently falls back to `score` on an unrecognized value, so these constants guard against typos (e.g. `downloads_desc`, not `num_downloads desc`).
 - **`FreesoundUsageMonitor`** — an opt-in `@MainActor @Observable` companion over the (still-`Sendable`) `FreesoundUsageTracker`. It re-snapshots on a timer (the rolling windows decay with wall-clock time) so SwiftUI views can observe `snapshot` directly, and only publishes when the snapshot actually changes so an idle meter doesn't wake SwiftUI every tick. The tracker itself is unchanged.
+- **`SoundLicense`** — a typed enum of the three `license` values the upload/describe/edit endpoints accept (e.g. `creativeCommons0` is `"Creative Commons 0"`, not `"CC0"`). The API validates the exact string, so a typo is a 400.
 
 ### Changed
 
 - Documented that `Pack.download` is not emitted by the current Freesound pack serializer (typically `nil`); use `downloadPack(id:)`.
+- Documented the geotag read/write format asymmetry: `Sound.geotag` is space-separated `"lat lon"`, but the upload/describe/edit endpoints require comma-separated `"lat,lon,zoom"` (`zoom` ≥ 11), so a read value can't be round-tripped into a request unchanged. The request structs' `geotag`/`license`/`tags` fields now document their server constraints.
+- Documented that `SoundEditRequest.bstCategory` is currently ignored by the Freesound edit endpoint (its request serializer omits the `bst_category` declaration); describe/upload accept it normally.
 
 ### Deprecated
 

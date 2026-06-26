@@ -104,6 +104,10 @@ public struct Sound: Codable, Sendable, Equatable, Hashable, Identifiable {
   public let subcategory: String?
   public let categoryCode: String?
   public let categoryIsUserProvided: Bool?
+  /// The sound's geotag as space-separated `"lat lon"`, or `nil` if not geotagged.
+  /// Note the write endpoints expect a different format — comma-separated
+  /// `"lat,lon,zoom"` — so this value can't be passed back to a request struct's
+  /// `geotag` unchanged (see ``SoundEditRequest/geotag``).
   public let geotag: String?
   public let isGeotagged: Bool?
   public let created: String?
@@ -466,6 +470,23 @@ public enum SoundSearchSort: String, Sendable, Equatable, Hashable, CaseIterable
   case ratingDescending = "rating_desc"
   /// Lowest average rating first (ties broken by number of ratings).
   case ratingAscending = "rating_asc"
+}
+
+/// The licenses accepted by the upload/describe/edit endpoints' `license` field
+/// — pass `SoundLicense.<case>.rawValue` to the request structs in
+/// ``SoundUploadRequest``/``SoundDescribeRequest``/``SoundEditRequest``.
+///
+/// The API validates against this exact set, so a wrong value is a 400 (not a
+/// silent fallback), and the strings are non-obvious — e.g. ``creativeCommons0``
+/// is `"Creative Commons 0"`, not `"CC0"`. Note this is the *write* vocabulary:
+/// on read, ``Sound/license`` is the license deed URL, not one of these names.
+public enum SoundLicense: String, Sendable, Equatable, Hashable, CaseIterable {
+  /// Creative Commons Attribution (CC BY).
+  case attribution = "Attribution"
+  /// Creative Commons Attribution-NonCommercial (CC BY-NC).
+  case attributionNonCommercial = "Attribution NonCommercial"
+  /// Creative Commons Zero / public domain dedication (CC0).
+  case creativeCommons0 = "Creative Commons 0"
 }
 
 public struct SoundImages: Codable, Sendable, Equatable, Hashable {

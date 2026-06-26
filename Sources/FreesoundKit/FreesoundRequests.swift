@@ -22,12 +22,20 @@ func encodeTags(_ tags: [String]) -> String {
 }
 
 public struct SoundUploadRequest: Sendable {
+  /// 3–30 tags. Multi-word tags are joined with dashes when encoded (see ``encodeTags(_:)``).
   public var tags: [String]
   public var description: String
+  /// A ``SoundLicense`` raw value (e.g. `SoundLicense.creativeCommons0.rawValue`).
+  /// The API validates this exact string, so a wrong value is a 400.
   public var license: String
   public var name: String?
+  /// A Broad Sound Taxonomy subcategory code.
   public var bstCategory: String?
   public var pack: String?
+  /// Geotag as `"lat,lon,zoom"` — comma-separated, with `lat` ∈ [-90, 90],
+  /// `lon` ∈ [-180, 180], and integer `zoom` ≥ 11. Note this differs from the
+  /// *read* format (``Sound/geotag`` is space-separated `"lat lon"`), so a value
+  /// read back from a ``Sound`` cannot be passed here unchanged.
   public var geotag: String?
 
   public init(
@@ -77,12 +85,21 @@ public struct SoundUploadRequest: Sendable {
 /// partial update — unspecified fields keep their current values.
 public struct SoundEditRequest: Sendable {
   public var name: String?
+  /// 3–30 tags. Replaces the sound's existing tags (it is not additive).
   public var tags: [String]?
   public var description: String?
+  /// A ``SoundLicense`` raw value. The API validates this exact string.
   public var license: String?
-  /// Broad Sound Taxonomy category id.
+  /// A Broad Sound Taxonomy subcategory code.
+  ///
+  /// - Warning: The Freesound *edit* endpoint currently ignores this field — its
+  ///   request serializer omits the `bst_category` declaration, so the value is
+  ///   dropped server-side (describe/upload accept it normally). It is still sent
+  ///   so it takes effect if/when the server adds the field.
   public var bstCategory: String?
   public var pack: String?
+  /// Geotag as `"lat,lon,zoom"` (comma-separated, `zoom` ≥ 11). Differs from the
+  /// space-separated read format on ``Sound/geotag``.
   public var geotag: String?
 
   public init(
@@ -133,13 +150,17 @@ public struct SoundEditRequest: Sendable {
 public struct SoundDescribeRequest: Sendable {
   /// Filename of a previously uploaded sound, as returned by `pendingUploads()`.
   public var uploadFilename: String
-  /// Broad Sound Taxonomy category id (required by the describe endpoint).
+  /// Broad Sound Taxonomy subcategory code (required by the describe endpoint).
   public var bstCategory: String
+  /// 3–30 tags. Multi-word tags are joined with dashes when encoded.
   public var tags: [String]
   public var description: String
+  /// A ``SoundLicense`` raw value. The API validates this exact string.
   public var license: String
   public var name: String?
   public var pack: String?
+  /// Geotag as `"lat,lon,zoom"` (comma-separated, `zoom` ≥ 11). Differs from the
+  /// space-separated read format on ``Sound/geotag``.
   public var geotag: String?
 
   public init(
