@@ -1053,6 +1053,68 @@ import Testing
   #expect(roundTripped.results.last?.descriptors.bpm == 100)
 }
 
+// MARK: - Value-enum Codable (so consumer structs holding them synthesize Codable)
+
+/// Encodes `value` inside an array (sidestepping top-level-fragment limits) and
+/// returns the single string it serialized to.
+private func encodedToken<T: Codable>(_ value: T) throws -> String {
+  try JSONDecoder().decode([String].self, from: JSONEncoder().encode([value]))[0]
+}
+
+@Test func stringRawValueEnumsEncodeAsAPITokens() throws {
+  // Free synthesis: these encode as the exact API token, not the Swift case name.
+  #expect(try encodedToken(SoundSearchSort.downloadsDescending) == "downloads_desc")
+  #expect(try encodedToken(SoundLicense.creativeCommons0) == "Creative Commons 0")
+  #expect(try encodedToken(SimilaritySpace.laionClap) == "laion_clap")
+}
+
+@Test func selectorEnumsEncodeAsStableTokens() throws {
+  // Custom single-value Codable: stable tokens, not the synthesized `{"case":{}}` shape.
+  #expect(try encodedToken(SoundPreviewFormat.hqMP3) == "hq-mp3")
+  #expect(try encodedToken(SoundImageType.waveformL) == "waveform_l")
+  #expect(try encodedToken(AvatarSize.medium) == "medium")
+  #expect(try encodedToken(APIUsageKind.write) == "write")
+}
+
+@Test func valueEnumsRoundTripEveryCase() throws {
+  func roundTrip<T: Codable & Equatable & CaseIterable>(_ type: T.Type) throws {
+    let all = Array(T.allCases)
+    let back = try JSONDecoder().decode([T].self, from: JSONEncoder().encode(all))
+    #expect(back == all)
+  }
+  try roundTrip(SoundSearchSort.self)
+  try roundTrip(SoundLicense.self)
+  try roundTrip(SimilaritySpace.self)
+  try roundTrip(SoundPreviewFormat.self)
+  try roundTrip(SoundImageType.self)
+  try roundTrip(AvatarSize.self)
+  try roundTrip(APIUsageKind.self)
+}
+
+@Test func selectorEnumRejectsUnknownToken() {
+  #expect(throws: DecodingError.self) {
+    try JSONDecoder().decode([SoundImageType].self, from: Data(#"["bogus"]"#.utf8))
+  }
+}
+
+@Test func structHoldingValueEnumsSynthesizesCodable() throws {
+  // The consumer need: a persisted struct mixing value enums round-trips losslessly
+  // without any `@retroactive Codable` workaround.
+  struct SavedSearch: Codable, Equatable {
+    var sort: SoundSearchSort
+    var space: SimilaritySpace
+    var license: SoundLicense
+    var preview: SoundPreviewFormat
+    var image: SoundImageType
+    var avatar: AvatarSize
+  }
+  let original = SavedSearch(
+    sort: .ratingDescending, space: .freesoundClassic, license: .attributionNonCommercial,
+    preview: .lqOGG, image: .spectralM, avatar: .large)
+  let back = try JSONDecoder().decode(SavedSearch.self, from: JSONEncoder().encode(original))
+  #expect(back == original)
+}
+
 // MARK: - Image download
 
 @Test func downloadImageFetchesImageWithoutAuth() async throws {

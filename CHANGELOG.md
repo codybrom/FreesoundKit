@@ -2,6 +2,12 @@
 
 All notable changes to FreesoundKit are documented in this file. This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-06-26
+
+### Added
+
+- **`Codable` on the value enums.** `SoundSearchSort`, `SoundLicense`, `SimilaritySpace`, `SoundPreviewFormat`, `SoundImageType`, `AvatarSize`, and `APIUsageKind` now conform to `Codable`, so a consumer type that stores one — e.g. a persisted saved-search `sort` — synthesizes `Codable` automatically instead of needing a `@retroactive Codable` workaround (which would collide the moment the conformance is added upstream). This completes the 1.2.0 move that made the response models `Codable`. The `String`-raw enums encode as their exact API token (`"downloads_desc"`, `"Creative Commons 0"`, `"laion_clap"`); the four remaining selector enums encode as stable lowercase tokens via a single-value container (e.g. `"hq-mp3"`, `"waveform_l"`), not the synthesized `{"case":{}}` shape, and decoding an unrecognized token throws.
+
 ## [1.3.0] - 2026-06-26
 
 Audited the full client surface against the Freesound server source (`apiv2/urls.py`, `views.py`, `serializers.py`) and verified the models against the live API. Coverage was already near-complete; this closes the remaining gaps.

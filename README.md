@@ -115,6 +115,8 @@ let restored = try JSONDecoder().decode(Sound.self, from: data)
 
 Encoding mirrors the API's response shape — including the audio-descriptor fields that `Sound` and `SoundAnalysis` flatten to the top level — so a `decode → encode → decode` round-trip is lossless. (`PagedResponse` is encodable whenever its element type is.)
 
+The value enums (`SoundSearchSort`, `SoundLicense`, `SimilaritySpace`, `SoundPreviewFormat`, `SoundImageType`, `AvatarSize`, `APIUsageKind`) are `Codable` too, so your own types that store one — say a saved search that holds a `sort` — synthesize `Codable` without a `@retroactive` workaround. Each encodes as a single stable string (the `String`-raw enums as their exact API token, e.g. `"downloads_desc"`).
+
 ### Caching binary assets
 
 Models carry only URLs for previews, waveforms/spectrograms, and avatars. To cache the *bytes*, use `FreesoundAssetCache` — a disk-backed actor that downloads on a miss, serves from disk on a hit, de-duplicates concurrent requests for the same URL, and evicts least-recently-used files to stay under a byte budget:

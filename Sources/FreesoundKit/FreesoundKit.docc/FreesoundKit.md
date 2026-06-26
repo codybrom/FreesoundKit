@@ -86,6 +86,12 @@ let data = try JSONEncoder().encode(sound)
 let restored = try JSONDecoder().decode(Sound.self, from: data)
 ```
 
+The value enums — ``SoundSearchSort``, ``SoundLicense``, ``SimilaritySpace``, ``SoundPreviewFormat``,
+``SoundImageType``, ``AvatarSize``, and ``APIUsageKind`` — are `Codable` as well, so your own types
+that store one (for example a saved search holding a `sort`) synthesize `Codable` without a
+`@retroactive` workaround. Each encodes as a single stable string: the `String`-raw enums as their
+exact API token (e.g. `"downloads_desc"`), the rest as a readable token (e.g. `"hq-mp3"`).
+
 ### Caching binary assets
 
 Models carry only URLs for previews, images, and avatars. Cache the bytes those URLs point at with

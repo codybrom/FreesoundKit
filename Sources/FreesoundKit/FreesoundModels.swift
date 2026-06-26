@@ -465,9 +465,38 @@ public enum SoundPreviewFormat: Sendable, Equatable, Hashable, CaseIterable {
   case lqOGG
 }
 
+extension SoundPreviewFormat: Codable {
+  /// The stable string this case persists as — decoupled from the case name and
+  /// distinct from the server's `preview-*` JSON keys (it is not an API token).
+  private var codableToken: String {
+    switch self {
+    case .hqMP3: "hq-mp3"
+    case .lqMP3: "lq-mp3"
+    case .hqOGG: "hq-ogg"
+    case .lqOGG: "lq-ogg"
+    }
+  }
+
+  public init(from decoder: Decoder) throws {
+    let token = try decoder.singleValueContainer().decode(String.self)
+    guard let value = Self.allCases.first(where: { $0.codableToken == token }) else {
+      throw DecodingError.dataCorrupted(
+        .init(
+          codingPath: decoder.codingPath,
+          debugDescription: "Unknown SoundPreviewFormat token \"\(token)\""))
+    }
+    self = value
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.singleValueContainer()
+    try container.encode(codableToken)
+  }
+}
+
 /// A similarity space for content-based search via the `similar_to` parameter
 /// of ``FreesoundClient/similaritySearch(toSoundID:space:parameters:)``.
-public enum SimilaritySpace: String, Sendable, Equatable, Hashable, CaseIterable {
+public enum SimilaritySpace: String, Codable, Sendable, Equatable, Hashable, CaseIterable {
   /// LAION-CLAP embeddings (512-dimensional) — acoustic and semantic similarity.
   case laionClap = "laion_clap"
   /// Essentia FreesoundExtractor low-level features (100-dimensional).
@@ -480,7 +509,7 @@ public enum SimilaritySpace: String, Sendable, Equatable, Hashable, CaseIterable
 /// The API silently falls back to ``score`` for any unrecognized `sort` value,
 /// so prefer these constants over raw strings (note the exact spellings, e.g.
 /// `downloads_desc`, not `num_downloads desc`).
-public enum SoundSearchSort: String, Sendable, Equatable, Hashable, CaseIterable {
+public enum SoundSearchSort: String, Codable, Sendable, Equatable, Hashable, CaseIterable {
   /// Most relevant to the text query first. The default when `sort` is omitted.
   case score
   /// Longest duration first.
@@ -509,7 +538,7 @@ public enum SoundSearchSort: String, Sendable, Equatable, Hashable, CaseIterable
 /// silent fallback), and the strings are non-obvious — e.g. ``creativeCommons0``
 /// is `"Creative Commons 0"`, not `"CC0"`. Note this is the *write* vocabulary:
 /// on read, ``Sound/license`` is the license deed URL, not one of these names.
-public enum SoundLicense: String, Sendable, Equatable, Hashable, CaseIterable {
+public enum SoundLicense: String, Codable, Sendable, Equatable, Hashable, CaseIterable {
   /// Creative Commons Attribution (CC BY).
   case attribution = "Attribution"
   /// Creative Commons Attribution-NonCommercial (CC BY-NC).
@@ -570,6 +599,34 @@ public enum SoundImageType: Sendable, Equatable, Hashable, CaseIterable {
   case spectralL
   /// Medium spectrogram (`spectral_m`).
   case spectralM
+}
+
+extension SoundImageType: Codable {
+  /// The stable string this case persists as, mirroring the ``SoundImages`` JSON keys.
+  private var codableToken: String {
+    switch self {
+    case .waveformL: "waveform_l"
+    case .waveformM: "waveform_m"
+    case .spectralL: "spectral_l"
+    case .spectralM: "spectral_m"
+    }
+  }
+
+  public init(from decoder: Decoder) throws {
+    let token = try decoder.singleValueContainer().decode(String.self)
+    guard let value = Self.allCases.first(where: { $0.codableToken == token }) else {
+      throw DecodingError.dataCorrupted(
+        .init(
+          codingPath: decoder.codingPath,
+          debugDescription: "Unknown SoundImageType token \"\(token)\""))
+    }
+    self = value
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.singleValueContainer()
+    try container.encode(codableToken)
+  }
 }
 
 public struct SoundAnalysis: Codable, Sendable, Equatable, Hashable {
@@ -1023,6 +1080,34 @@ public enum AvatarSize: Sendable, Equatable, Hashable, CaseIterable {
   case medium
   /// Large avatar (`L`).
   case large
+}
+
+extension AvatarSize: Codable {
+  /// The stable string this case persists as (the server uses `S`/`M`/`L` on the
+  /// wire; this readable token is the package's own persistence representation).
+  private var codableToken: String {
+    switch self {
+    case .small: "small"
+    case .medium: "medium"
+    case .large: "large"
+    }
+  }
+
+  public init(from decoder: Decoder) throws {
+    let token = try decoder.singleValueContainer().decode(String.self)
+    guard let value = Self.allCases.first(where: { $0.codableToken == token }) else {
+      throw DecodingError.dataCorrupted(
+        .init(
+          codingPath: decoder.codingPath,
+          debugDescription: "Unknown AvatarSize token \"\(token)\""))
+    }
+    self = value
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.singleValueContainer()
+    try container.encode(codableToken)
+  }
 }
 
 public struct User: Codable, Sendable, Equatable, Hashable, Identifiable {

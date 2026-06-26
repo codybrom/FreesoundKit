@@ -16,6 +16,31 @@ public enum APIUsageKind: Sendable, Equatable, Hashable, CaseIterable {
   case write
 }
 
+extension APIUsageKind: Codable {
+  /// The stable string this case persists as.
+  private var codableToken: String {
+    switch self {
+    case .standard: "standard"
+    case .write: "write"
+    }
+  }
+
+  public init(from decoder: Decoder) throws {
+    let token = try decoder.singleValueContainer().decode(String.self)
+    guard let value = Self.allCases.first(where: { $0.codableToken == token }) else {
+      throw DecodingError.dataCorrupted(
+        .init(codingPath: decoder.codingPath,
+          debugDescription: "Unknown APIUsageKind token \"\(token)\""))
+    }
+    self = value
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.singleValueContainer()
+    try container.encode(codableToken)
+  }
+}
+
 /// Freesound's published per-window request limits for an API credential.
 ///
 /// The values come from the server's `APIV2_BASIC_THROTTLING_RATES_PER_LEVELS`
