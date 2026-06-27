@@ -115,7 +115,7 @@ import Testing
     """#
   let sound = try JSONDecoder().decode(Sound.self, from: Data(soundJSON.utf8))
   #expect(sound.packName == "nightingales")
-  #expect(sound.samplerate == 48000)  // API returns 48000.0 (float) for an Int field
+  #expect(sound.samplerate == 48000.0)  // server FloatField — decoded as Double, not Int
 
   let packJSON = #"{"id": 455, "name": "nightingales", "num_sounds": 12, "num_downloads": 3456}"#
   let pack = try JSONDecoder().decode(Pack.self, from: Data(packJSON.utf8))
@@ -162,6 +162,23 @@ import Testing
   #expect(d.fsdsinetDetections?.first?.name == "Animal")
   #expect(d.fsdsinetDetections?.first?.confidence == 0.91)
   #expect(d.laionClap?.count == 2)
+}
+
+@Test func soundDecodesSimPrefixedEmbeddings() throws {
+  // The Sound serializer emits similarity embeddings `sim_`-prefixed (unlike the
+  // /analysis/ endpoint). They must still land on the unprefixed descriptor fields.
+  let json = #"""
+    {"id":7,"sim_laion_clap":[0.1,0.2,0.3],"sim_freesound_classic":[0.4,0.5]}
+    """#
+  let sound = try JSONDecoder().decode(Sound.self, from: Data(json.utf8))
+  #expect(sound.descriptors.laionClap == [0.1, 0.2, 0.3])
+  #expect(sound.descriptors.freesoundClassic == [0.4, 0.5])
+  // Encoding must write the canonical unprefixed key, never the sim_ spelling —
+  // assert on the JSON itself (decoding again would mask it, since the decoder
+  // accepts both spellings).
+  let encoded = String(decoding: try JSONEncoder().encode(sound), as: UTF8.self)
+  #expect(encoded.contains("\"laion_clap\""))
+  #expect(!encoded.contains("sim_laion_clap"))
 }
 
 @Test func meToleratesEmptyHomePageAndAvatarlessAccount() async throws {
@@ -221,6 +238,127 @@ import Testing
 
   #expect(token.accessToken == "a1")
   #expect(token.refreshToken == "r1")
+}
+
+@Test func authorizationURLIncludesRequestedScopes() throws {
+  let client = FreesoundClient(session: MockHTTPClient.unused)
+  let url = try client.oauthAuthorizationURL(clientID: "abc123", scopes: [.read])
+  // Space-separated per OAuth2; the single space form-encodes to %20 or '+'.
+  let absolute = url.absoluteString
+  #expect(absolute.contains("scope=read"))
+  #expect(!absolute.contains("write"))
+
+  let rw = try client.oauthAuthorizationURL(clientID: "abc123", scopes: [.read, .write])
+  #expect(rw.absoluteString.contains("scope=read"))
+  #expect(rw.absoluteString.contains("write"))
+
+  // Omitting scopes sends none (server applies its default).
+  let none = try client.oauthAuthorizationURL(clientID: "abc123")
+  #expect(!none.absoluteString.contains("scope="))
+}
+
+@Test func passwordGrantSendsResourceOwnerCredentials() async throws {
+  let mockSession = MockHTTPClient { request in
+    #expect(request.url?.path == "/apiv2/oauth2/access_token")
+    let body = String(data: request.httpBody ?? Data(), encoding: .utf8) ?? ""
+    #expect(body.contains("grant_type=password"))
+    #expect(body.contains("username=alice"))
+    #expect(body.contains("password=secret"))
+    return (
+      Data(
+        #"{"access_token":"a1","token_type":"Bearer","expires_in":86399,"refresh_token":"r1"}"#
+          .utf8), makeResponse()
+    )
+  }
+  let client = FreesoundClient(session: mockSession)
+  let token = try await client.exchangePasswordGrant(
+    clientID: "id", clientSecret: "secret", username: "alice", password: "secret")
+  #expect(token.accessToken == "a1")
+  #expect(token.tokenType == "Bearer")
+}
+
+@Test func oauthTokenEndpointErrorIsStructured() async throws {
+  // The token endpoint's {"error","error_description"} envelope maps to .oauthError,
+  // not a generic .apiError, so callers can branch on `invalid_grant`.
+  let mockSession = MockHTTPClient { _ in
+    (
+      Data(#"{"error":"invalid_grant","error_description":"Token has expired."}"#.utf8),
+      makeResponse(status: 401)
+    )
+  }
+  let client = FreesoundClient(session: mockSession)
+  do {
+    _ = try await client.refreshAccessToken(
+      clientID: "id", clientSecret: "secret", refreshToken: "stale")
+    Issue.record("Expected oauthError")
+  } catch let error as FreesoundError {
+    guard case .oauthError(let code, let description, let statusCode) = error else {
+      Issue.record("Expected oauthError, got \(error)")
+      return
+    }
+    #expect(code == "invalid_grant")
+    #expect(description == "Token has expired.")
+    #expect(statusCode == 401)
+  }
+}
+
+@Test func throttleScopeParsesServerMessage() {
+  #expect(
+    FreesoundError.rateLimited(
+      retryAfter: nil, detail: "exceeding a request limit rate (60/minute)"
+    )
+    .throttleScope == .perMinute)
+  #expect(
+    FreesoundError.rateLimited(retryAfter: nil, detail: "exceeding a request limit rate (2000/day)")
+      .throttleScope == .perDay)
+  #expect(
+    FreesoundError.rateLimited(retryAfter: nil, detail: "exceeding a request limit rate (100/hour)")
+      .throttleScope == .perHour)
+  #expect(
+    FreesoundError.rateLimited(
+      retryAfter: nil, detail: "the ApiV2 credential has been suspended"
+    ).throttleScope
+      == .suspended)
+  // Unrecognized throttle message -> nil (so withRateLimitRetry still retries it).
+  #expect(
+    FreesoundError.rateLimited(retryAfter: nil, detail: "Request was throttled").throttleScope
+      == nil)
+  #expect(FreesoundError.apiError(statusCode: 400, detail: "x").throttleScope == nil)
+}
+
+@Test func rateLimitRetryRetriesPerMinuteThrottle() async throws {
+  // A per-minute throttle clears within the minute, so it must be retried (and
+  // succeed on a later attempt), unlike the per-day case below.
+  let attempts = Mutex(0)
+  let client = FreesoundClient(session: MockHTTPClient.unused)
+  let result = try await client.withRateLimitRetry(maxAttempts: 3, fallbackDelay: 0) {
+    let n = attempts.withLock {
+      $0 += 1
+      return $0
+    }
+    if n < 2 {
+      throw FreesoundError.rateLimited(
+        retryAfter: nil, detail: "exceeding a request limit rate (60/minute)")
+    }
+    return "ok"
+  }
+  #expect(result == "ok")
+  #expect(attempts.withLock { $0 } == 2)
+}
+
+@Test func rateLimitRetryDoesNotRetryPerDayThrottle() async throws {
+  // A per-day throttle won't clear on a short retry, so it must be rethrown after
+  // the first attempt rather than slept-and-retried.
+  let attempts = Mutex(0)
+  let client = FreesoundClient(session: MockHTTPClient.unused)
+  await #expect(throws: FreesoundError.self) {
+    try await client.withRateLimitRetry(maxAttempts: 3, fallbackDelay: 0) {
+      attempts.withLock { $0 += 1 }
+      throw FreesoundError.rateLimited(
+        retryAfter: nil, detail: "exceeding a request limit rate (2000/day)")
+    }
+  }
+  #expect(attempts.withLock { $0 } == 1)
 }
 
 @Test func mapsDetailFromAPIError() async throws {
@@ -328,6 +466,8 @@ import Testing
     #expect(body.contains("upload_filename=clip.wav"))
     // License raw value flows through (space-encoded as '+').
     #expect(body.contains("license=Creative+Commons+0"))
+    // bst_category is optional on describe but set here, so it is sent.
+    #expect(body.contains("bst_category=fx-other"))
     // Geotag keeps its comma-separated write format ('+'-free, comma as %2C).
     #expect(body.contains("geotag=41.4%2C2.18%2C16"))
     return (Data(#"{"detail":"ok"}"#.utf8), makeResponse(status: 201))
@@ -337,10 +477,10 @@ import Testing
   let response = try await client.describeSound(
     request: SoundDescribeRequest(
       uploadFilename: "clip.wav",
-      bstCategory: "fx-other",
       tags: ["one", "two", "three"],
       description: "A clip",
-      license: SoundLicense.creativeCommons0.rawValue,
+      license: .creativeCommons0,
+      bstCategory: "fx-other",
       geotag: "41.4,2.18,16"))
   #expect(response.detail == "ok")
 }
@@ -352,7 +492,7 @@ import Testing
     #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer oauth-token")
     let body = String(data: request.httpBody ?? Data(), encoding: .utf8) ?? ""
     #expect(body.contains("name=New+title"))
-    #expect(body.contains("tags=field+recording"))
+    #expect(body.contains("tags=field+recording+nature"))
     // Unset fields must not be sent (partial update).
     #expect(!body.contains("description="))
     #expect(!body.contains("license="))
@@ -363,9 +503,54 @@ import Testing
   let client = FreesoundClient(authentication: .oauthToken("oauth-token"), session: mockSession)
   let response = try await client.editSound(
     soundID: 42,
-    request: SoundEditRequest(name: "New title", tags: ["field", "recording"])
+    request: SoundEditRequest(name: "New title", tags: ["field", "recording", "nature"])
   )
   #expect(response.detail == "ok")
+}
+
+@Test func describeSoundDecodesNewSoundID() async throws {
+  // The describe endpoint's 201 returns {detail, id}; the id must survive on
+  // APIStatusResponse since it's the only place a described sound's id appears.
+  let mockSession = MockHTTPClient { request in
+    // bst_category is optional on describe and unset here, so it must be omitted.
+    let body = String(data: request.httpBody ?? Data(), encoding: .utf8) ?? ""
+    #expect(!body.contains("bst_category"))
+    return (
+      Data(#"{"detail":"Sound successfully described.","id":98765}"#.utf8),
+      makeResponse(status: 201)
+    )
+  }
+  let client = FreesoundClient(authentication: .oauthToken("t"), session: mockSession)
+  let response = try await client.describeSound(
+    request: SoundDescribeRequest(
+      uploadFilename: "c.wav", tags: ["one", "two", "three"], description: "d",
+      license: .creativeCommons0))
+  #expect(response.id == 98765)
+  #expect(response.detail == "Sound successfully described.")
+}
+
+@Test func tagCountValidatedClientSideBeforeSending() async throws {
+  // Fewer than 3 tags is rejected locally (like rateSound's range guard), so the
+  // request never reaches the network.
+  let client = FreesoundClient(
+    authentication: .oauthToken("t"), session: MockHTTPClient.unused)
+  await #expect(throws: FreesoundError.self) {
+    try await client.describeSound(
+      request: SoundDescribeRequest(
+        uploadFilename: "c.wav", tags: ["only-one"], description: "d", license: .attribution))
+  }
+  // Same guard on the upload path (too few) and edit path (too many) — the guard
+  // runs before the network, so the unused session is never touched.
+  await #expect(throws: FreesoundError.self) {
+    try await client.uploadSound(
+      fileURL: URL(fileURLWithPath: "/does-not-exist.wav"),
+      request: SoundUploadRequest(
+        tags: ["one", "two"], description: "d", license: .attribution, bstCategory: "fx-other"))
+  }
+  await #expect(throws: FreesoundError.self) {
+    try await client.editSound(
+      soundID: 1, request: SoundEditRequest(tags: Array(repeating: "t", count: 31)))
+  }
 }
 
 @Test func ratingValidatesRange() async throws {
@@ -496,6 +681,8 @@ import Testing
     let bodyString = String(decoding: body, as: UTF8.self)
     #expect(bodyString.contains("--\(boundary)\r\n"))
     #expect(bodyString.contains("name=\"description\""))
+    // The describe path requires bst_category, so it must be in the body.
+    #expect(bodyString.contains("name=\"bst_category\""))
     #expect(bodyString.contains("filename=\"\(fileURL.lastPathComponent)\""))
     #expect(bodyString.contains("Content-Type: audio/wav"))
     #expect(body.range(of: fileBytes) != nil)
@@ -508,7 +695,8 @@ import Testing
   let response = try await client.uploadSound(
     fileURL: fileURL,
     request: SoundUploadRequest(
-      tags: ["test"], description: "A test clip", license: "Creative Commons 0")
+      tags: ["one", "two", "three"], description: "A test clip", license: .creativeCommons0,
+      bstCategory: "fx-other")
   )
   #expect(response.id == 123)
 }
@@ -533,7 +721,8 @@ import Testing
   _ = try await client.uploadSound(
     fileURL: fileURL,
     request: SoundUploadRequest(
-      tags: ["test"], description: "A test clip", license: "Creative Commons 0"))
+      tags: ["one", "two", "three"], description: "A test clip", license: .creativeCommons0,
+      bstCategory: "fx-other"))
 }
 
 @Test func multiWordTagsJoinWithDashesAndDoNotSplit() async throws {
@@ -541,14 +730,14 @@ import Testing
     let body = String(data: request.httpBody ?? Data(), encoding: .utf8) ?? ""
     // "field recording" is one tag (internal space -> dash); separate tags stay
     // space-delimited (form-encoded as '+').
-    #expect(body.contains("tags=field-recording+nature"))
+    #expect(body.contains("tags=field-recording+nature+outdoor"))
     return (Data(#"{"detail":"ok"}"#.utf8), makeResponse())
   }
 
   let client = FreesoundClient(authentication: .oauthToken("oauth-token"), session: mockSession)
   let response = try await client.editSound(
     soundID: 7,
-    request: SoundEditRequest(tags: ["field recording", "nature"])
+    request: SoundEditRequest(tags: ["field recording", "nature", "outdoor"])
   )
   #expect(response.detail == "ok")
 }
@@ -593,7 +782,7 @@ import Testing
 @Test func validationErrorDetailFlattensFieldMessages() async throws {
   // The write endpoints return {"detail": {<field>: [msgs]}} on 400; the
   // field-level messages must survive rather than collapsing to "Unknown error".
-  let body = #"{"detail":{"tags":["You should add at least 3 tags."]}}"#
+  let body = #"{"detail":{"description":["This field is required."]}}"#
   let mockSession = MockHTTPClient { _ in
     (Data(body.utf8), makeResponse(status: 400))
   }
@@ -602,8 +791,8 @@ import Testing
   do {
     _ = try await client.describeSound(
       request: SoundDescribeRequest(
-        uploadFilename: "c.wav", bstCategory: "fx-other", tags: ["a"],
-        description: "d", license: SoundLicense.creativeCommons0.rawValue))
+        uploadFilename: "c.wav", tags: ["a", "b", "c"],
+        description: "d", license: .creativeCommons0, bstCategory: "fx-other"))
     Issue.record("Expected API error")
   } catch let error as FreesoundError {
     guard case .apiError(let statusCode, let detail) = error else {
@@ -611,7 +800,7 @@ import Testing
       return
     }
     #expect(statusCode == 400)
-    #expect(detail == "tags: You should add at least 3 tags.")
+    #expect(detail == "description: This field is required.")
   }
 }
 
@@ -690,7 +879,10 @@ import Testing
     #expect(request.url?.path == "/apiv2/search/text")
     let query = request.url?.query ?? ""
     #expect(query.contains("similar_to=14854"))
-    #expect(query.contains("similar_space=laion_clap"))
+    // The server's form field is `similarity_space`; `similar_space` is silently
+    // dropped (it would fall back to the default space without error).
+    #expect(query.contains("similarity_space=laion_clap"))
+    #expect(!query.contains("similar_space="))
     return (
       Data(#"{"count":1,"next":null,"previous":null,"results":[{"id":99}]}"#.utf8), makeResponse()
     )
@@ -699,6 +891,34 @@ import Testing
   let client = FreesoundClient(authentication: .apiKey("k"), session: mockSession)
   let page = try await client.similaritySearch(toSoundID: 14854, space: .laionClap)
   #expect(page.results.first?.id == 99)
+}
+
+@Test func similaritySearchSendsNonDefaultSpace() async throws {
+  // Regression for the `similar_space` → `similarity_space` key fix: a non-default
+  // space must actually reach the server, not be silently coerced to the default.
+  let mockSession = MockHTTPClient { request in
+    let query = request.url?.query ?? ""
+    #expect(query.contains("similarity_space=freesound_classic"))
+    return (
+      Data(#"{"count":0,"next":null,"previous":null,"results":[]}"#.utf8), makeResponse()
+    )
+  }
+  let client = FreesoundClient(authentication: .apiKey("k"), session: mockSession)
+  _ = try await client.similaritySearch(toSoundID: 14854, space: .freesoundClassic)
+}
+
+@Test func similaritySearchByVectorSerializesSimilarTo() async throws {
+  let mockSession = MockHTTPClient { request in
+    let query = request.url?.query?.removingPercentEncoding ?? ""
+    // The embedding is sent as a JSON array (5-decimal components) via similar_to.
+    #expect(query.contains("similar_to=[0.10000,-0.20000,0.30000]"))
+    #expect(query.contains("similarity_space=laion_clap"))
+    return (
+      Data(#"{"count":0,"next":null,"previous":null,"results":[]}"#.utf8), makeResponse()
+    )
+  }
+  let client = FreesoundClient(authentication: .apiKey("k"), session: mockSession)
+  _ = try await client.similaritySearch(toVector: [0.1, -0.2, 0.3], space: .laionClap)
 }
 
 // Marked deprecated so it can exercise the deprecated methods without warnings.
@@ -783,7 +1003,7 @@ import Testing
   // it to the right field rather than trusting only the Sound/User paths.
   #expect(Comment(created: "2014-04-16T20:07:11.145").createdDate != nil)
   #expect(Pack(id: 1, created: "2014-04-16T20:07:11.145").createdDate != nil)
-  #expect(PendingUpload(uploadDate: "2008-08-07T17:39:00").uploadedDate != nil)
+  #expect(PendingUpload(created: "2008-08-07T17:39:00").createdDate != nil)
 }
 
 @Test func unparsableTimestampYieldsNil() {
@@ -1051,6 +1271,43 @@ import Testing
     PagedResponse<Sound>.self, from: JSONEncoder().encode(original))
   #expect(roundTripped == original)
   #expect(roundTripped.results.last?.descriptors.bpm == 100)
+}
+
+@Test func pagedResponseDropsNullResultsInsteadOfFailing() throws {
+  // The search/similarity endpoints append JSON `null` for index-desynced sounds.
+  // The whole page must survive, with the nulls dropped — not throw and lose all.
+  let json = #"""
+    {"count":3,"next":null,"previous":null,"results":[{"id":1},null,{"id":3}]}
+    """#
+  let page = try JSONDecoder().decode(PagedResponse<Sound>.self, from: Data(json.utf8))
+  #expect(page.results.map(\.id) == [1, 3])
+  #expect(page.count == 3)
+}
+
+@Test func pendingUploadDecodesRealMinimalSoundShape() throws {
+  // The server returns a minimal sound dict, not a full Sound: id/name/tags/
+  // description/created/license, plus processing_state (pending processing) and
+  // images (pending moderation).
+  let json = #"""
+    {"pending_description":["a.wav","b.aiff"],
+     "pending_processing":[{"id":1,"name":"P","tags":["x"],"description":"d",
+       "created":"2008-08-07T17:39:00","license":"https://creativecommons.org/publicdomain/zero/1.0/",
+       "processing_state":"Processing"}],
+     "pending_moderation":[{"id":2,"name":"M","tags":["y"],"description":"d2",
+       "created":"2008-08-07T17:39:00","license":"https://creativecommons.org/licenses/by/4.0/",
+       "images":{"waveform_m":"https://freesound.org/data/displays/2/2_wave_M.png"}}]}
+    """#
+  let pending = try JSONDecoder().decode(PendingUploads.self, from: Data(json.utf8))
+  #expect(pending.pendingDescription == ["a.wav", "b.aiff"])
+  let processing = pending.pendingProcessing.first
+  #expect(processing?.id == 1)
+  #expect(processing?.name == "P")
+  #expect(processing?.tags == ["x"])
+  #expect(processing?.processingState == "Processing")
+  #expect(processing?.createdDate != nil)
+  let moderation = pending.pendingModeration.first
+  #expect(moderation?.images?.waveformM != nil)
+  #expect(moderation?.processingState == nil)
 }
 
 // MARK: - Value-enum Codable (so consumer structs holding them synthesize Codable)

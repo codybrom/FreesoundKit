@@ -2,6 +2,51 @@
 
 All notable changes to FreesoundKit are documented in this file. This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-06-26
+
+An audit of the client against the actual Freesound server source surfaced wire-level correctness fixes, read-model fidelity improvements, and new write/auth capabilities. Several changes are source-breaking — see **Migration** below.
+
+### Added
+
+- **`similaritySearch(toVector:space:parameters:)`** — search by a raw embedding vector. The server's `similar_to` accepts a JSON-serialized vector (`[v1, v2, …]`, 5-decimal components) in place of a sound id. Validates the vector is non-empty and finite, throwing `invalidInput` otherwise.
+- **`exchangePasswordGrant(clientID:clientSecret:username:password:)`** — the OAuth2 Resource Owner Password Credentials grant, for the (rare) credentials Freesound has enabled `allow_oauth_password_grant` for.
+- **`OAuthScope`** and a `scopes:` parameter on `oauthAuthorizationURL(…)` — request a least-privilege token (e.g. `[.read]`) instead of the server default (read+write).
+- **`FreesoundError.oauthError(error:description:statusCode:)`** — the OAuth token endpoint's structured `{"error", "error_description"}` envelope is surfaced as its own case, so callers can branch on `invalid_grant` (refresh expired → re-authorize) vs `invalid_client` without string-matching.
+- **`FreesoundError.throttleScope`** / **`APIThrottleScope`** — classify a 429 as per-minute / per-hour / per-day or a suspended credential. `withRateLimitRetry` now skips retries that cannot clear in time (per-hour, per-day, suspended); it still retries per-minute and unrecognized throttles.
+- **`APIStatusResponse.id`** — `describeSound(request:)` surfaces the newly described sound's id. Since pending uploads are keyed by filename, the describe response is the only place that id appears.
+- **`OAuthTokenResponse.tokenType`** — the `token_type` field (typically `"Bearer"`).
+- **`Sound` decodes the search serializer's `sim_`-prefixed similarity embeddings.** The Sound serializer emits embeddings `sim_`-prefixed (`sim_laion_clap`); they now decode onto `SoundDescriptors.laionClap`/`freesoundClassic`/`freesoundClassicV1`, alongside the unprefixed spelling the `/analysis/` endpoint uses. Re-encoding always writes the canonical unprefixed key.
+- **Client-side tag-count validation.** `uploadSound`/`describeSound`/`editSound` throw `invalidInput` when the encoded tag count is outside the server's 3–30 range, failing fast like `rateSound`'s rating check rather than round-tripping to a 400.
+- **Documentation** for advanced search features already reachable through `parameters:` — `group_by_pack`, per-field `weights`, geospatial `filter`, descriptor-proximity `sort` targets, and the `fields` magic tokens (`*`, `all_descriptors`, `all_similarity_spaces`) — plus the synthesized `id == 0` "Uncategorized" bookmark bucket and the 409 returned when re-rating a sound.
+
+### Changed
+
+- **`similaritySearch(toSoundID:space:)` now sends the `similarity_space` query field** — it previously sent `similar_space`, which the server silently dropped, so a non-default `space` had no effect and results fell back to the default space with no error. Non-default spaces now actually take effect.
+- **The write request structs take a typed `SoundLicense` instead of a `String` `license`** (`SoundUploadRequest`/`SoundDescribeRequest` require it; `SoundEditRequest` is optional). The API validates an exact set, so the enum prevents a silent 400. _(breaking)_
+- **`SoundUploadRequest.bstCategory` is now required** — uploading with a description always requires it server-side — and **`SoundDescribeRequest.bstCategory` is now optional**, matching the describe endpoint. Both initializers' parameter order changed accordingly. _(breaking)_
+- **`Sound.samplerate` is now `Double?`** (was `Int?`); the server field is a float (e.g. `48000.0`). _(breaking)_
+- **`PendingUpload` now models the real `/me/pending_uploads/` shape** — `id`, `name`, `tags`, `description`, `created`, `license`, `processingState`, `images` — replacing the previous `filename`/`originalFilename`/`uploadDate`/`status`/`detail`/`sound` fields, of which only `id` was ever populated. _(breaking)_
+- **`FreesoundError` gained the `oauthError` case** — exhaustive `switch`es over it must add a branch. _(breaking)_
+
+### Removed
+
+- **Fields the API never returns** (they always decoded to `nil`): `Comment.id`, `Comment.url`, `UploadSoundResponse.uploadURL`, `UploadSoundResponse.sound`. _(breaking)_
+
+### Fixed
+
+- **Similarity search silently ignored the requested space** — the `similar_space` → `similarity_space` query-key bug above. A passing test had locked the wrong key in place.
+- **A search/similarity page containing a `null` result no longer fails to decode.** The server appends JSON `null` for sounds desynced between the search index and the database; `PagedResponse` now drops the nulls and keeps the valid results instead of throwing and losing the whole page.
+- **`sim_`-prefixed similarity embeddings now decode** (previously only the unprefixed `/analysis/` spelling did, so embeddings requested via search/detail decoded to `nil`).
+
+### Migration
+
+- Pass `SoundLicense` cases instead of license strings: `license: "Creative Commons 0"` → `license: .creativeCommons0`.
+- `SoundUploadRequest(…)` now requires `bstCategory:`; `SoundDescribeRequest(…)` no longer requires it. Both initializers reordered — use argument labels (you likely already do).
+- `Sound.samplerate` is `Double?`; update any `Int` bindings or comparisons.
+- Re-decode any persisted `PendingUpload`; its fields changed.
+- Handle the new `FreesoundError.oauthError` case in exhaustive `switch`es.
+- `Comment` and `UploadSoundResponse` no longer expose the removed always-`nil` fields.
+
 ## [1.3.1] - 2026-06-26
 
 ### Added

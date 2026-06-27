@@ -138,6 +138,18 @@ public final class FreesoundClient: Sendable {
   ///     `page`, `page_size`, `fields`). `nil` values are omitted. For `sort`,
   ///     pass a ``SoundSearchSort`` raw value; `page_size` is capped at 150 by
   ///     the server (default 15).
+  ///
+  ///     The pass-through dictionary also reaches the server's advanced search
+  ///     features, none of which need a dedicated parameter:
+  ///     - `group_by_pack=1` collapses a pack's sounds into one result (decoded
+  ///       into ``Sound/moreFromSamePack``/``Sound/nFromSamePack``).
+  ///     - `weights` re-weights the text match per field, e.g. `"name:4,tags:1"`.
+  ///     - `filter` accepts Solr syntax including geospatial filters, e.g.
+  ///       `"{!geofilt sfield=geotag pt=41.4,2.18 d=10}"`.
+  ///     - `sort` also accepts a descriptor-proximity target, e.g.
+  ///       `"pitch:220,pitch_var:0.0"` (see ``SoundSearchSort`` for the named values).
+  ///     - `fields` accepts the magic tokens `*` (all), `all_descriptors`, and
+  ///       `all_similarity_spaces` in addition to a comma-separated field list.
   /// - Returns: A page of matching ``Sound`` results.
   /// - Throws: ``FreesoundError`` if the request fails.
   public func textSearch(query: String, parameters: [String: String?] = [:]) async throws
@@ -166,7 +178,38 @@ public final class FreesoundClient: Sendable {
     var allParameters = parameters
     allParameters["similar_to"] = String(soundID)
     if let space {
-      allParameters["similar_space"] = space.rawValue
+      allParameters["similarity_space"] = space.rawValue
+    }
+    return try await send(path: "/search/text/", query: allParameters)
+  }
+
+  /// Searches for sounds similar to a raw embedding vector rather than a reference
+  /// sound. The server's `similar_to` accepts a JSON-serialized vector
+  /// (`[v1, v2, …]`) in place of a sound id.
+  /// - Parameters:
+  ///   - vector: The embedding to match. Its dimensionality must match `space`
+  ///     (``SimilaritySpace/laionClap`` is 512-D, ``SimilaritySpace/freesoundClassic``
+  ///     is 100-D). Components are serialized to 5 decimal places.
+  ///   - space: The similarity space the vector belongs to, or `nil` for the default.
+  ///   - parameters: Additional query parameters (`filter`, `sort`, `fields`,
+  ///     `page`, `page_size`). `nil` values are omitted.
+  /// - Returns: A page of matching ``Sound`` results.
+  /// - Throws: ``FreesoundError/invalidInput(_:)`` if `vector` is empty or has a
+  ///   non-finite component, or another ``FreesoundError`` if the request fails.
+  public func similaritySearch(
+    toVector vector: [Double],
+    space: SimilaritySpace? = nil,
+    parameters: [String: String?] = [:]
+  ) async throws -> PagedResponse<Sound> {
+    guard !vector.isEmpty, vector.allSatisfy(\.isFinite) else {
+      throw FreesoundError.invalidInput(
+        "similarity vector must be non-empty and contain only finite values")
+    }
+    var allParameters = parameters
+    allParameters["similar_to"] =
+      "[" + vector.map { String(format: "%.5f", $0) }.joined(separator: ",") + "]"
+    if let space {
+      allParameters["similarity_space"] = space.rawValue
     }
     return try await send(path: "/search/text/", query: allParameters)
   }
@@ -265,7 +308,12 @@ public final class FreesoundClient: Sendable {
   /// Fetches metadata for a single sound.
   /// - Parameters:
   ///   - id: The sound's identifier.
-  ///   - fields: A comma-separated list of fields to return, or `nil` for the default set.
+  ///   - fields: A comma-separated list of fields to return, or `nil` for the
+  ///     default set. Besides explicit field names, the server accepts the magic
+  ///     tokens `*` (every field), `all_descriptors` (every audio descriptor), and
+  ///     `all_similarity_spaces` (every similarity embedding). Embeddings arrive
+  ///     `sim_`-prefixed but still decode onto ``SoundDescriptors`` (e.g.
+  ///     ``SoundDescriptors/laionClap``).
   /// - Returns: The requested ``Sound``.
   /// - Throws: ``FreesoundError`` if the request fails.
   public func sound(id: Int, fields: String? = nil) async throws -> Sound {
@@ -430,13 +478,18 @@ public final class FreesoundClient: Sendable {
   ///   - request: Optional description metadata to send alongside the file.
   ///   - fileFieldName: The multipart field name for the file. Defaults to `"audiofile"`.
   /// - Returns: The upload result, including the new sound or pending-upload identifier.
-  /// - Throws: ``FreesoundError/oauthRequired`` if not OAuth-authenticated, or
-  ///   another ``FreesoundError`` if reading the file or the request fails.
+  /// - Throws: ``FreesoundError/invalidInput(_:)`` if `request` is given and its
+  ///   tag count is outside 3–30, ``FreesoundError/oauthRequired`` if not
+  ///   OAuth-authenticated, or another ``FreesoundError`` if reading the file or
+  ///   the request fails.
   public func uploadSound(
     fileURL: URL,
     request: SoundUploadRequest? = nil,
     fileFieldName: String = "audiofile"
   ) async throws -> UploadSoundResponse {
+    if let request {
+      try validateTagCount(request.tags)
+    }
     let fileData = try await Self.readFile(at: fileURL)
     let boundary = "Boundary-\(UUID().uuidString)"
     let body = multipartBody(
@@ -460,10 +513,14 @@ public final class FreesoundClient: Sendable {
   ///
   /// Requires an ``FreesoundAuthentication/oauthToken(_:)``.
   /// - Parameter request: The description fields to apply.
-  /// - Returns: The API status response.
-  /// - Throws: ``FreesoundError/oauthRequired`` if not OAuth-authenticated, or
+  /// - Returns: The API status response. Its ``APIStatusResponse/id`` is the new
+  ///   sound's identifier — this is the only place that id is surfaced, since
+  ///   pending uploads are keyed by filename rather than id.
+  /// - Throws: ``FreesoundError/invalidInput(_:)`` if the tag count is outside
+  ///   3–30, ``FreesoundError/oauthRequired`` if not OAuth-authenticated, or
   ///   another ``FreesoundError`` if the request fails.
   public func describeSound(request: SoundDescribeRequest) async throws -> APIStatusResponse {
+    try validateTagCount(request.tags)
     let body = formEncodedBody(request.asFormFields)
     return try await send(
       path: "/sounds/describe/",
@@ -483,11 +540,15 @@ public final class FreesoundClient: Sendable {
   ///   - soundID: The sound's identifier.
   ///   - request: The fields to change.
   /// - Returns: The API status response.
-  /// - Throws: ``FreesoundError/oauthRequired`` if not OAuth-authenticated, or
-  ///   another ``FreesoundError`` if the request fails.
+  /// - Throws: ``FreesoundError/invalidInput(_:)`` if `request.tags` is set and its
+  ///   count is outside 3–30, ``FreesoundError/oauthRequired`` if not
+  ///   OAuth-authenticated, or another ``FreesoundError`` if the request fails.
   public func editSound(soundID: Int, request: SoundEditRequest) async throws
     -> APIStatusResponse
   {
+    if let tags = request.tags {
+      try validateTagCount(tags)
+    }
     let body = formEncodedBody(request.asFormFields)
     return try await send(
       path: "/sounds/\(soundID)/edit/",
@@ -554,7 +615,10 @@ public final class FreesoundClient: Sendable {
 
   /// Rates a sound on behalf of the authenticated user.
   ///
-  /// Requires an ``FreesoundAuthentication/oauthToken(_:)``.
+  /// Requires an ``FreesoundAuthentication/oauthToken(_:)``. Ratings are
+  /// create-only: re-rating a sound the user has already rated returns HTTP 409,
+  /// surfaced as ``FreesoundError/apiError(statusCode:detail:)`` with
+  /// `statusCode == 409` (there is no update path).
   /// - Parameters:
   ///   - soundID: The sound's identifier.
   ///   - rating: The rating, from `0` to `5` inclusive.
@@ -677,7 +741,10 @@ public final class FreesoundClient: Sendable {
 
   /// Lists the authenticated user's bookmark categories.
   ///
-  /// Requires an ``FreesoundAuthentication/oauthToken(_:)``.
+  /// Requires an ``FreesoundAuthentication/oauthToken(_:)``. When the user has any
+  /// *uncategorized* bookmarks, the server synthesizes an extra category with
+  /// `id == 0` named "Uncategorized" (it isn't a real, stored category); pass that
+  /// `0` to ``myBookmarkCategorySounds(categoryID:parameters:)`` to list them.
   /// - Parameter parameters: Optional pagination parameters such as `page`, `page_size`.
   /// - Returns: A page of ``BookmarkCategory`` values.
   /// - Throws: ``FreesoundError/oauthRequired`` if not OAuth-authenticated, or
@@ -716,6 +783,8 @@ public final class FreesoundClient: Sendable {
   ///   - clientID: Your application's client identifier.
   ///   - responseState: An optional opaque value echoed back on redirect to guard against CSRF.
   ///   - redirectURI: The redirect URI to return to, if overriding the app's default.
+  ///   - scopes: The OAuth2 scopes to request. When omitted, Freesound grants its
+  ///     default (read+write); pass `[.read]` for a least-privilege, read-only token.
   ///   - forceLogin: When `true`, forces the user to log in again before authorizing.
   /// - Returns: The authorization URL to open.
   /// - Throws: ``FreesoundError`` if the URL cannot be constructed.
@@ -723,6 +792,7 @@ public final class FreesoundClient: Sendable {
     clientID: String,
     responseState: String? = nil,
     redirectURI: String? = nil,
+    scopes: [OAuthScope]? = nil,
     forceLogin: Bool = false
   ) throws -> URL {
     var query: [String: String?] = [
@@ -731,6 +801,9 @@ public final class FreesoundClient: Sendable {
     ]
     query["state"] = responseState
     query["redirect_uri"] = redirectURI
+    if let scopes, !scopes.isEmpty {
+      query["scope"] = scopes.map(\.rawValue).joined(separator: " ")
+    }
 
     let path = forceLogin ? "/oauth2/logout_and_authorize/" : "/oauth2/authorize/"
     return try buildURL(path: path, query: query)
@@ -798,6 +871,49 @@ public final class FreesoundClient: Sendable {
     )
   }
 
+  /// Obtains a token using the OAuth2 Resource Owner Password Credentials grant.
+  ///
+  /// Exchanges a username and password directly for tokens, skipping the
+  /// browser redirect. The request is sent unauthenticated regardless of the
+  /// client's current credential.
+  ///
+  /// - Important: This grant is disabled by default — it works only for API
+  ///   credentials Freesound has explicitly enabled it for
+  ///   (`allow_oauth_password_grant`). Most apps should use the
+  ///   authorization-code flow via
+  ///   ``oauthAuthorizationURL(clientID:responseState:redirectURI:scopes:forceLogin:)``
+  ///   and ``exchangeAuthorizationCode(clientID:clientSecret:code:)`` instead.
+  /// - Parameters:
+  ///   - clientID: Your application's client identifier.
+  ///   - clientSecret: Your application's client secret.
+  ///   - username: The resource owner's username.
+  ///   - password: The resource owner's password.
+  /// - Returns: The token response, including access and refresh tokens.
+  /// - Throws: ``FreesoundError/oauthError(error:description:statusCode:)`` if the
+  ///   grant is rejected (e.g. not enabled for the credential), or another
+  ///   ``FreesoundError`` if the request fails.
+  public func exchangePasswordGrant(
+    clientID: String,
+    clientSecret: String,
+    username: String,
+    password: String
+  ) async throws -> OAuthTokenResponse {
+    let formData = formEncodedBody([
+      "client_id": clientID,
+      "client_secret": clientSecret,
+      "grant_type": "password",
+      "username": username,
+      "password": password,
+    ])
+    return try await send(
+      path: "/oauth2/access_token/",
+      method: "POST",
+      body: formData,
+      contentType: "application/x-www-form-urlencoded",
+      authenticationOverride: .some(.none)
+    )
+  }
+
   // MARK: - Rate-limit handling
 
   /// Runs an operation, automatically retrying when Freesound throttles it.
@@ -847,6 +963,15 @@ public final class FreesoundClient: Sendable {
       } catch let error as FreesoundError {
         guard case .rateLimited(let retryAfter, _) = error, attempt < maxAttempts else {
           throw error
+        }
+        // A per-hour/day throttle or a suspended credential won't clear within a
+        // short retry window, so retrying is futile (and burns the quota harder).
+        // Only retry per-minute throttles and unrecognized messages.
+        switch error.throttleScope {
+        case .perHour, .perDay, .suspended:
+          throw error
+        case .perMinute, nil:
+          break
         }
         // Don't start another attempt if the surrounding task was
         // cancelled — this also covers the zero-delay path, which never
@@ -1031,7 +1156,22 @@ public final class FreesoundClient: Sendable {
         .flatMap(TimeInterval.init)
       return .rateLimited(retryAfter: retryAfter, detail: detail)
     }
+    // The OAuth2 token endpoint uses an `{"error", "error_description"}` envelope
+    // instead of DRF's `{"detail"}`, so surface it structured when present.
+    if let oauth = Self.oauthError(from: data) {
+      return .oauthError(
+        error: oauth.error, description: oauth.description, statusCode: response.statusCode)
+    }
     return .apiError(statusCode: response.statusCode, detail: detail)
+  }
+
+  /// Parses the OAuth2 token endpoint's `{"error", "error_description"}` envelope,
+  /// or `nil` if the body isn't that shape (e.g. an ordinary DRF `{"detail"}` error).
+  static func oauthError(from data: Data) -> (error: String, description: String?)? {
+    guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let error = json["error"] as? String
+    else { return nil }
+    return (error, json["error_description"] as? String)
   }
 
   /// Extracts a readable message from a Freesound error body. Most errors are
@@ -1078,6 +1218,16 @@ public final class FreesoundClient: Sendable {
       throw FreesoundError.invalidInput("Cannot resolve pagination link: \(link)")
     }
     return url.absoluteURL
+  }
+
+  /// Validates that the encoded tag count is within the 3–30 range the
+  /// upload/describe/edit endpoints require, throwing early like `rateSound`'s
+  /// range check rather than letting the server reject it with a 400.
+  private func validateTagCount(_ tags: [String]) throws {
+    let count = encodeTags(tags).split(separator: " ").count
+    guard (3...30).contains(count) else {
+      throw FreesoundError.invalidInput("tags must contain 3 to 30 entries (got \(count))")
+    }
   }
 
   private func formEncodedBody(_ params: [String: String]) -> Data {

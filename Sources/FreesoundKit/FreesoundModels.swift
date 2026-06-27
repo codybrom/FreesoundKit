@@ -16,12 +16,32 @@ public struct PagedResponse<Item: Decodable & Sendable>: Decodable, Sendable {
   /// when the query was adjusted). Present only on some search responses.
   public let note: String?
 
+  enum CodingKeys: String, CodingKey {
+    case count, next, previous, results, note
+  }
+
   public init(count: Int?, next: URL?, previous: URL?, results: [Item], note: String? = nil) {
     self.count = count
     self.next = next
     self.previous = previous
     self.results = results
     self.note = note
+  }
+
+  /// Decodes `results` null-tolerantly. The search/similarity endpoints append a
+  /// JSON `null` for any result whose sound is desynced between the search index
+  /// and the database, so `results` can legitimately contain nulls. Decoding them
+  /// as `[Item]` would throw and lose the *entire* page, so nulls are dropped and
+  /// the surviving sounds are kept.
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    count = try container.decodeIfPresent(Int.self, forKey: .count)
+    next = try container.decodeIfPresent(URL.self, forKey: .next)
+    previous = try container.decodeIfPresent(URL.self, forKey: .previous)
+    note = try container.decodeIfPresent(String.self, forKey: .note)
+    results = (try container.decodeIfPresent([Item?].self, forKey: .results) ?? []).compactMap {
+      $0
+    }
   }
 }
 
@@ -48,10 +68,14 @@ public struct CombinedSearchResponse: Codable, Sendable, Equatable, Hashable {
 public struct APIStatusResponse: Codable, Sendable, Equatable, Hashable {
   public let detail: String?
   public let status: String?
+  /// The id of the newly created sound, returned by the describe endpoint's
+  /// success response (`nil` for the other write endpoints, which return no id).
+  public let id: Int?
 
-  public init(detail: String? = nil, status: String? = nil) {
+  public init(detail: String? = nil, status: String? = nil, id: Int? = nil) {
     self.detail = detail
     self.status = status
+    self.id = id
   }
 }
 
@@ -79,19 +103,26 @@ public struct SoundDownloadLink: Codable, Sendable, Equatable, Hashable {
 
 public struct OAuthTokenResponse: Codable, Sendable, Equatable, Hashable {
   public let accessToken: String
+  /// The token type, typically `"Bearer"`.
+  public let tokenType: String?
   public let scope: String?
   public let expiresIn: Int
   public let refreshToken: String
 
   enum CodingKeys: String, CodingKey {
     case accessToken = "access_token"
+    case tokenType = "token_type"
     case scope
     case expiresIn = "expires_in"
     case refreshToken = "refresh_token"
   }
 
-  public init(accessToken: String, scope: String? = nil, expiresIn: Int, refreshToken: String) {
+  public init(
+    accessToken: String, tokenType: String? = nil, scope: String? = nil, expiresIn: Int,
+    refreshToken: String
+  ) {
     self.accessToken = accessToken
+    self.tokenType = tokenType
     self.scope = scope
     self.expiresIn = expiresIn
     self.refreshToken = refreshToken
@@ -123,7 +154,7 @@ public struct Sound: Codable, Sendable, Equatable, Hashable, Identifiable {
   public let bitrate: Double?
   public let bitdepth: Int?
   public let duration: Double?
-  public let samplerate: Int?
+  public let samplerate: Double?
   public let username: String?
   public let md5: String?
   public let isRemix: Bool?
@@ -234,7 +265,7 @@ public struct Sound: Codable, Sendable, Equatable, Hashable, Identifiable {
     bitrate = try container.decodeIfPresent(Double.self, forKey: .bitrate)
     bitdepth = try container.decodeIfPresent(Int.self, forKey: .bitdepth)
     duration = try container.decodeIfPresent(Double.self, forKey: .duration)
-    samplerate = try container.decodeIfPresent(Int.self, forKey: .samplerate)
+    samplerate = try container.decodeIfPresent(Double.self, forKey: .samplerate)
     username = try container.decodeIfPresent(String.self, forKey: .username)
     md5 = try container.decodeIfPresent(String.self, forKey: .md5)
     isRemix = try container.decodeIfPresent(Bool.self, forKey: .isRemix)
@@ -259,7 +290,7 @@ public struct Sound: Codable, Sendable, Equatable, Hashable, Identifiable {
     moreFromSamePack = try container.decodeIfPresent(URL.self, forKey: .moreFromSamePack)
     nFromSamePack = try container.decodeIfPresent(Int.self, forKey: .nFromSamePack)
     distanceToTarget = try container.decodeIfPresent(Double.self, forKey: .distanceToTarget)
-    descriptors = try SoundDescriptors(from: decoder)
+    descriptors = try SoundDescriptors.decodeFlattened(from: decoder)
   }
 
   /// Encodes back into the API's flattened shape — the keyed sound fields plus the analysis
@@ -340,7 +371,7 @@ public struct Sound: Codable, Sendable, Equatable, Hashable, Identifiable {
     bitrate: Double? = nil,
     bitdepth: Int? = nil,
     duration: Double? = nil,
-    samplerate: Int? = nil,
+    samplerate: Double? = nil,
     username: String? = nil,
     md5: String? = nil,
     isRemix: Bool? = nil,
@@ -506,9 +537,12 @@ public enum SimilaritySpace: String, Codable, Sendable, Equatable, Hashable, Cas
 /// The sort orders accepted by ``FreesoundClient/textSearch(query:parameters:)``
 /// through the `sort` parameter — pass `SoundSearchSort.<case>.rawValue`.
 ///
-/// The API silently falls back to ``score`` for any unrecognized `sort` value,
-/// so prefer these constants over raw strings (note the exact spellings, e.g.
-/// `downloads_desc`, not `num_downloads desc`).
+/// The API falls back to ``score`` for an unrecognized *named* `sort` value, so
+/// prefer these constants over raw strings (note the exact spellings, e.g.
+/// `downloads_desc`, not `num_downloads desc`). One exception: a colon-style value
+/// such as `"pitch:220,pitch_var:0.0"` is *not* a name and is honored as a
+/// descriptor-proximity sort target rather than falling back — pass those as a raw
+/// string through `parameters`.
 public enum SoundSearchSort: String, Codable, Sendable, Equatable, Hashable, CaseIterable {
   /// Most relevant to the text query first. The default when `sort` is omitted.
   case score
@@ -545,6 +579,18 @@ public enum SoundLicense: String, Codable, Sendable, Equatable, Hashable, CaseIt
   case attributionNonCommercial = "Attribution NonCommercial"
   /// Creative Commons Zero / public domain dedication (CC0).
   case creativeCommons0 = "Creative Commons 0"
+}
+
+/// An OAuth2 scope to request when building the authorization URL via
+/// ``FreesoundClient/oauthAuthorizationURL(clientID:responseState:redirectURI:scopes:forceLogin:)``.
+///
+/// Freesound grants read+write by default; request ``read`` alone for a
+/// least-privilege, read-only token.
+public enum OAuthScope: String, Codable, Sendable, Equatable, Hashable, CaseIterable {
+  /// Read access — search, sound/user/pack info, downloads.
+  case read
+  /// Write access — rate, comment, bookmark, upload, describe, edit.
+  case write
 }
 
 public struct SoundImages: Codable, Sendable, Equatable, Hashable {
@@ -633,7 +679,7 @@ public struct SoundAnalysis: Codable, Sendable, Equatable, Hashable {
   public let descriptors: SoundDescriptors
 
   public init(from decoder: Decoder) throws {
-    descriptors = try SoundDescriptors(from: decoder)
+    descriptors = try SoundDescriptors.decodeFlattened(from: decoder)
   }
 
   /// Mirrors ``init(from:)`` by writing the flattened ``descriptors`` at the top level.
@@ -769,9 +815,11 @@ public struct SoundDescriptors: Codable, Sendable, Equatable, Hashable {
   public let fsdsinetDetectedClass: [String]?
   public let fsdsinetDetections: [FSDSINetDetection]?
   public let fsdsinetDetectionsCount: Int?
-  public let freesoundClassic: [Double]?
-  public let freesoundClassicV1: [Double]?
-  public let laionClap: [Double]?
+  // Similarity embeddings. These are `var` (not `let`) only so ``decodeFlattened(from:)``
+  // can patch in the `sim_`-prefixed spelling the Sound serializer uses; see there.
+  public var freesoundClassic: [Double]?
+  public var freesoundClassicV1: [Double]?
+  public var laionClap: [Double]?
 
   enum CodingKeys: String, CodingKey {
     case amplitudePeakRatio = "amplitude_peak_ratio"
@@ -845,6 +893,36 @@ public struct SoundDescriptors: Codable, Sendable, Equatable, Hashable {
     case freesoundClassic = "freesound_classic"
     case freesoundClassicV1 = "freesound_classic_v1"
     case laionClap = "laion_clap"
+  }
+
+  /// Decodes a ``SoundDescriptors`` flattened at the top level of `decoder`,
+  /// accepting the similarity embeddings under either spelling: the Sound
+  /// serializer emits them `sim_`-prefixed (`sim_laion_clap`), while the
+  /// `/analysis/` endpoint emits them unprefixed (`laion_clap`). The unprefixed
+  /// keys (handled by the synthesized decode) win when both are present.
+  static func decodeFlattened(from decoder: Decoder) throws -> SoundDescriptors {
+    var descriptors = try SoundDescriptors(from: decoder)
+    guard let sim = try? decoder.container(keyedBy: SimilarityCodingKeys.self) else {
+      return descriptors
+    }
+    if descriptors.laionClap == nil {
+      descriptors.laionClap = try sim.decodeIfPresent([Double].self, forKey: .laionClap)
+    }
+    if descriptors.freesoundClassic == nil {
+      descriptors.freesoundClassic = try sim.decodeIfPresent(
+        [Double].self, forKey: .freesoundClassic)
+    }
+    if descriptors.freesoundClassicV1 == nil {
+      descriptors.freesoundClassicV1 = try sim.decodeIfPresent(
+        [Double].self, forKey: .freesoundClassicV1)
+    }
+    return descriptors
+  }
+
+  private enum SimilarityCodingKeys: String, CodingKey {
+    case laionClap = "sim_laion_clap"
+    case freesoundClassic = "sim_freesound_classic"
+    case freesoundClassicV1 = "sim_freesound_classic_v1"
   }
 
   /// Memberwise initializer with every descriptor defaulting to `nil`. Useful
@@ -996,9 +1074,11 @@ public struct SoundDescriptors: Codable, Sendable, Equatable, Hashable {
   }
 }
 
+/// A comment on a sound, as returned by ``FreesoundClient/soundComments(id:parameters:)``.
+///
+/// The Freesound comments serializer returns only these three fields — there is no
+/// comment `id` or `url`.
 public struct Comment: Codable, Sendable, Equatable, Hashable {
-  public let id: Int?
-  public let url: URL?
   public let username: String?
   public let comment: String?
   public let created: String?
@@ -1007,14 +1087,10 @@ public struct Comment: Codable, Sendable, Equatable, Hashable {
   public var createdDate: Date? { freesoundDate(created) }
 
   public init(
-    id: Int? = nil,
-    url: URL? = nil,
     username: String? = nil,
     comment: String? = nil,
     created: String? = nil
   ) {
-    self.id = id
-    self.url = url
     self.username = username
     self.comment = comment
     self.created = created
@@ -1403,74 +1479,87 @@ public struct PendingUploads: Codable, Sendable, Equatable, Hashable {
   }
 }
 
-public struct PendingUpload: Codable, Sendable, Equatable, Hashable {
+/// A described sound listed under ``PendingUploads/pendingProcessing`` or
+/// ``PendingUploads/pendingModeration``.
+///
+/// The `/me/pending_uploads/` endpoint returns a *minimal* sound dict, not a full
+/// ``Sound`` — only the handful of fields below. ``processingState`` is present
+/// only for ``PendingUploads/pendingProcessing`` items, and ``images`` only for
+/// ``PendingUploads/pendingModeration`` items.
+public struct PendingUpload: Codable, Sendable, Equatable, Hashable, Identifiable {
   public let id: Int?
-  public let filename: String?
-  public let originalFilename: String?
-  public let uploadDate: String?
-  public let status: String?
-  public let detail: String?
-  public let sound: URL?
+  public let name: String?
+  public let tags: [String]?
+  public let description: String?
+  public let created: String?
+  /// The license deed URL (as on ``Sound/license``), not a ``SoundLicense`` name.
+  public let license: String?
+  /// A human-readable processing-state label (e.g. `"Processing"`, `"Queued"`),
+  /// present only for sounds pending processing.
+  public let processingState: String?
+  /// Visualization image URLs, present only for sounds pending moderation.
+  public let images: SoundImages?
 
-  /// ``uploadDate`` parsed as a `Date`, or `nil` if absent or unrecognized.
-  public var uploadedDate: Date? { freesoundDate(uploadDate) }
+  /// ``created`` parsed as a `Date`, or `nil` if absent or unrecognized.
+  public var createdDate: Date? { freesoundDate(created) }
 
   enum CodingKeys: String, CodingKey {
     case id
-    case filename
-    case originalFilename = "original_filename"
-    case uploadDate = "upload_date"
-    case status
-    case detail
-    case sound
+    case name
+    case tags
+    case description
+    case created
+    case license
+    case processingState = "processing_state"
+    case images
   }
 
   public init(
     id: Int? = nil,
-    filename: String? = nil,
-    originalFilename: String? = nil,
-    uploadDate: String? = nil,
-    status: String? = nil,
-    detail: String? = nil,
-    sound: URL? = nil
+    name: String? = nil,
+    tags: [String]? = nil,
+    description: String? = nil,
+    created: String? = nil,
+    license: String? = nil,
+    processingState: String? = nil,
+    images: SoundImages? = nil
   ) {
     self.id = id
-    self.filename = filename
-    self.originalFilename = originalFilename
-    self.uploadDate = uploadDate
-    self.status = status
-    self.detail = detail
-    self.sound = sound
+    self.name = name
+    self.tags = tags
+    self.description = description
+    self.created = created
+    self.license = license
+    self.processingState = processingState
+    self.images = images
   }
 }
 
+/// The response from ``FreesoundClient/uploadSound(fileURL:request:fileFieldName:)``.
+///
+/// The upload endpoint returns one of two shapes: when a description is provided,
+/// the new sound's ``id`` (now pending processing/moderation); when it is upload-only,
+/// the server-assigned ``filename`` (now pending description). ``detail`` is always
+/// present; the other two are mutually exclusive.
 public struct UploadSoundResponse: Codable, Sendable, Equatable, Hashable {
   public let id: Int?
   public let filename: String?
   public let detail: String?
-  public let uploadURL: URL?
-  public let sound: URL?
 
   enum CodingKeys: String, CodingKey {
     case id
     case filename
     case detail
-    case uploadURL = "upload_url"
-    case sound
   }
 
   public init(
     id: Int? = nil,
     filename: String? = nil,
-    detail: String? = nil,
-    uploadURL: URL? = nil,
-    sound: URL? = nil
+    detail: String? = nil
   ) {
     self.id = id
     self.filename = filename
     self.detail = detail
-    self.uploadURL = uploadURL
-    self.sound = sound
   }
 }
 

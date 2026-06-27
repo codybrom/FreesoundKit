@@ -21,16 +21,23 @@ func encodeTags(_ tags: [String]) -> String {
     .joined(separator: " ")
 }
 
+/// Description metadata uploaded alongside an audio file via
+/// ``FreesoundClient/uploadSound(fileURL:request:fileFieldName:)``.
+///
+/// This always uploads *and describes* in one call, so the describe-required
+/// fields — ``tags``, ``description``, ``license``, and ``bstCategory`` — are all
+/// required (an upload that provides a description but omits the category is a
+/// 400). To upload without describing, omit the `request` argument entirely.
 public struct SoundUploadRequest: Sendable {
   /// 3–30 tags. Multi-word tags are joined with dashes when encoded (see ``encodeTags(_:)``).
   public var tags: [String]
   public var description: String
-  /// A ``SoundLicense`` raw value (e.g. `SoundLicense.creativeCommons0.rawValue`).
-  /// The API validates this exact string, so a wrong value is a 400.
-  public var license: String
+  /// The sound's license. The API validates against this exact set.
+  public var license: SoundLicense
+  /// A Broad Sound Taxonomy subcategory code (e.g. `"m"`/`"fx-..."`). Required on
+  /// the describe path; see the Freesound Broad Sound Taxonomy for valid codes.
+  public var bstCategory: String
   public var name: String?
-  /// A Broad Sound Taxonomy subcategory code.
-  public var bstCategory: String?
   public var pack: String?
   /// Geotag as `"lat,lon,zoom"` — comma-separated, with `lat` ∈ [-90, 90],
   /// `lon` ∈ [-180, 180], and integer `zoom` ≥ 11. Note this differs from the
@@ -41,17 +48,17 @@ public struct SoundUploadRequest: Sendable {
   public init(
     tags: [String],
     description: String,
-    license: String,
+    license: SoundLicense,
+    bstCategory: String,
     name: String? = nil,
-    bstCategory: String? = nil,
     pack: String? = nil,
     geotag: String? = nil
   ) {
     self.tags = tags
     self.description = description
     self.license = license
-    self.name = name
     self.bstCategory = bstCategory
+    self.name = name
     self.pack = pack
     self.geotag = geotag
   }
@@ -60,13 +67,11 @@ public struct SoundUploadRequest: Sendable {
     var fields: [String: String] = [
       "tags": encodeTags(tags),
       "description": description,
-      "license": license,
+      "license": license.rawValue,
+      "bst_category": bstCategory,
     ]
     if let name {
       fields["name"] = name
-    }
-    if let bstCategory {
-      fields["bst_category"] = bstCategory
     }
     if let pack {
       fields["pack"] = pack
@@ -88,8 +93,8 @@ public struct SoundEditRequest: Sendable {
   /// 3–30 tags. Replaces the sound's existing tags (it is not additive).
   public var tags: [String]?
   public var description: String?
-  /// A ``SoundLicense`` raw value. The API validates this exact string.
-  public var license: String?
+  /// The sound's license. The API validates against this exact set.
+  public var license: SoundLicense?
   /// A Broad Sound Taxonomy subcategory code.
   ///
   /// - Warning: The Freesound *edit* endpoint currently ignores this field — its
@@ -106,7 +111,7 @@ public struct SoundEditRequest: Sendable {
     name: String? = nil,
     tags: [String]? = nil,
     description: String? = nil,
-    license: String? = nil,
+    license: SoundLicense? = nil,
     bstCategory: String? = nil,
     pack: String? = nil,
     geotag: String? = nil
@@ -132,7 +137,7 @@ public struct SoundEditRequest: Sendable {
       fields["description"] = description
     }
     if let license {
-      fields["license"] = license
+      fields["license"] = license.rawValue
     }
     if let bstCategory {
       fields["bst_category"] = bstCategory
@@ -150,13 +155,15 @@ public struct SoundEditRequest: Sendable {
 public struct SoundDescribeRequest: Sendable {
   /// Filename of a previously uploaded sound, as returned by `pendingUploads()`.
   public var uploadFilename: String
-  /// Broad Sound Taxonomy subcategory code (required by the describe endpoint).
-  public var bstCategory: String
   /// 3–30 tags. Multi-word tags are joined with dashes when encoded.
   public var tags: [String]
   public var description: String
-  /// A ``SoundLicense`` raw value. The API validates this exact string.
-  public var license: String
+  /// The sound's license. The API validates against this exact set.
+  public var license: SoundLicense
+  /// A Broad Sound Taxonomy subcategory code. Optional on the *describe* endpoint
+  /// (unlike upload-with-description, where it is required), so it is only sent
+  /// when set.
+  public var bstCategory: String?
   public var name: String?
   public var pack: String?
   /// Geotag as `"lat,lon,zoom"` (comma-separated, `zoom` ≥ 11). Differs from the
@@ -165,19 +172,19 @@ public struct SoundDescribeRequest: Sendable {
 
   public init(
     uploadFilename: String,
-    bstCategory: String,
     tags: [String],
     description: String,
-    license: String,
+    license: SoundLicense,
+    bstCategory: String? = nil,
     name: String? = nil,
     pack: String? = nil,
     geotag: String? = nil
   ) {
     self.uploadFilename = uploadFilename
-    self.bstCategory = bstCategory
     self.tags = tags
     self.description = description
     self.license = license
+    self.bstCategory = bstCategory
     self.name = name
     self.pack = pack
     self.geotag = geotag
@@ -186,11 +193,13 @@ public struct SoundDescribeRequest: Sendable {
   var asFormFields: [String: String] {
     var fields: [String: String] = [
       "upload_filename": uploadFilename,
-      "bst_category": bstCategory,
       "tags": encodeTags(tags),
       "description": description,
-      "license": license,
+      "license": license.rawValue,
     ]
+    if let bstCategory {
+      fields["bst_category"] = bstCategory
+    }
     if let name {
       fields["name"] = name
     }

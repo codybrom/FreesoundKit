@@ -87,7 +87,7 @@ let restored = try JSONDecoder().decode(Sound.self, from: data)
 ```
 
 The value enums — ``SoundSearchSort``, ``SoundLicense``, ``SimilaritySpace``, ``SoundPreviewFormat``,
-``SoundImageType``, ``AvatarSize``, and ``APIUsageKind`` — are `Codable` as well, so your own types
+``SoundImageType``, ``AvatarSize``, ``APIUsageKind``, and ``OAuthScope`` — are `Codable` as well, so your own types
 that store one (for example a saved search holding a `sort`) synthesize `Codable` without a
 `@retroactive` workaround. Each encodes as a single stable string: the `String`-raw enums as their
 exact API token (e.g. `"downloads_desc"`), the rest as a readable token (e.g. `"hq-mp3"`).
@@ -118,6 +118,7 @@ let avatar = try await cache.avatarData(for: user.avatar!)
 
 - ``FreesoundClient/textSearch(query:parameters:)``
 - ``FreesoundClient/similaritySearch(toSoundID:space:parameters:)``
+- ``FreesoundClient/similaritySearch(toVector:space:parameters:)``
 - ``SoundSearchSort``
 - ``SimilaritySpace``
 
@@ -209,14 +210,18 @@ let avatar = try await cache.avatarData(for: user.avatar!)
 
 ### The OAuth2 flow
 
-- ``FreesoundClient/oauthAuthorizationURL(clientID:responseState:redirectURI:forceLogin:)``
+- ``FreesoundClient/oauthAuthorizationURL(clientID:responseState:redirectURI:scopes:forceLogin:)``
 - ``FreesoundClient/exchangeAuthorizationCode(clientID:clientSecret:code:)``
 - ``FreesoundClient/refreshAccessToken(clientID:clientSecret:refreshToken:)``
+- ``FreesoundClient/exchangePasswordGrant(clientID:clientSecret:username:password:)``
+- ``OAuthScope``
 - ``OAuthTokenResponse``
 
 ### Coping with rate limits
 
 - ``FreesoundClient/withRateLimitRetry(maxAttempts:fallbackDelay:maxDelay:operation:)``
+- ``FreesoundError/throttleScope``
+- ``APIThrottleScope``
 
 ### Response models
 
