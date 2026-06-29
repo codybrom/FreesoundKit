@@ -29,7 +29,8 @@ extension APIUsageKind: Codable {
     let token = try decoder.singleValueContainer().decode(String.self)
     guard let value = Self.allCases.first(where: { $0.codableToken == token }) else {
       throw DecodingError.dataCorrupted(
-        .init(codingPath: decoder.codingPath,
+        .init(
+          codingPath: decoder.codingPath,
           debugDescription: "Unknown APIUsageKind token \"\(token)\""))
     }
     self = value
@@ -80,9 +81,21 @@ public struct FreesoundUsageLimits: Sendable, Equatable, Hashable {
   public func perDay(_ kind: APIUsageKind) -> Int {
     kind == .write ? writePerDay : standardPerDay
   }
+
+  /// Returns a copy with the given fields replaced (others left unchanged).
+  public func with(
+    standardPerMinute: Int? = nil, standardPerDay: Int? = nil,
+    writePerMinute: Int? = nil, writePerDay: Int? = nil
+  ) -> FreesoundUsageLimits {
+    FreesoundUsageLimits(
+      standardPerMinute: standardPerMinute ?? self.standardPerMinute,
+      standardPerDay: standardPerDay ?? self.standardPerDay,
+      writePerMinute: writePerMinute ?? self.writePerMinute,
+      writePerDay: writePerDay ?? self.writePerDay)
+  }
 }
 
-/// A locally estimated record of APIv2 usage, so you can show how close a
+/// A locally estimated record of APIv2 usage, so you can observe how close a
 /// credential is to Freesound's published limits.
 ///
 /// Freesound throttles on rolling windows (the last 60 seconds and the last 24
@@ -97,13 +110,32 @@ public struct FreesoundUsageLimits: Sendable, Equatable, Hashable {
 /// credential, and it counts the requests this client actually sends. The type
 /// is `Sendable` and safe to read while the client records into it. Persist
 /// across launches by saving ``events(_:)`` and restoring them via `init`.
+///
+/// > Important: ``limits`` begins as an **unconfirmed assumption** — the level
+/// > you passed to `init` (default ``FreesoundUsageLimits/level1``). The API has
+/// > no endpoint that reveals your credential's real level; the only API signal
+/// > is a 429, which ``observeThrottle(_:kind:)`` uses to correct ``limits``.
+/// > So treat the limits as advisory until then, and **do not hard-block requests
+/// > on the assumed ceiling.** If your app refuses to send once `snapshot()`
+/// > reports a bucket exhausted, an account that is actually on a higher level
+/// > would cap itself at the assumed level-1 numbers and never hit the real 429
+/// > that would reveal the truth — a self-fulfilling under-estimate. And a level
+/// > can change over time, so even a value learned from a real 429 is provisional
+/// > (the newest throttle supersedes it, up or down) and can go stale between
+/// > throttles. Treat these numbers as advisory always: use the snapshot to
+/// > inform/warn, let real 429s do the enforcing, and consult the web
+/// > API-credentials dashboard for the authoritative level.
 public final class FreesoundUsageTracker: Sendable {
-  /// The limits this tracker compares usage against.
-  public let limits: FreesoundUsageLimits
+  /// The limits this tracker compares usage against. Starts at the value passed
+  /// to `init` (an **unconfirmed assumption**) and is corrected toward reality by
+  /// ``observeThrottle(_:kind:)`` as the server reveals real limits via 429s. See
+  /// the type's note before gating requests on these values.
+  public var limits: FreesoundUsageLimits { state.withLock(\.limits) }
 
   private struct State {
     var standard: [Date]
     var write: [Date]
+    var limits: FreesoundUsageLimits
   }
   private let state: Mutex<State>
 
@@ -117,8 +149,46 @@ public final class FreesoundUsageTracker: Sendable {
     standardEvents: [Date] = [],
     writeEvents: [Date] = []
   ) {
-    self.limits = limits
-    self.state = Mutex(State(standard: standardEvents, write: writeEvents))
+    self.state = Mutex(State(standard: standardEvents, write: writeEvents, limits: limits))
+  }
+
+  /// Reconciles the tracked ``limits`` with a real limit the server disclosed in
+  /// a 429 throttle response, the only place the API reveals your credential's
+  /// actual quota. Pass the thrown ``FreesoundError`` and the request ``kind``
+  /// that was throttled; the matching per-minute/per-day field is updated.
+  ///
+  /// A ``FreesoundClient`` with a configured ``FreesoundClient/usageTracker``
+  /// calls this automatically when a request is throttled, so apps that start at
+  /// the wrong assumed level converge to their true limits without intervention.
+  ///
+  /// The newest throttle always wins, revising the limit **up or down** — your
+  /// credential's level can change over time, so no single observation is treated
+  /// as permanent. Learned limits live only for this tracker's lifetime (they
+  /// aren't part of ``events(_:)`` persistence), so a relaunch starts from the
+  /// assumed `init` value and re-learns — which also means a stale learned level
+  /// is never carried indefinitely. Only the credential request-limit throttle is
+  /// honored; IP/concurrency throttles are ignored (see
+  /// ``FreesoundError/throttleLimit``).
+  /// - Returns: `true` if a limit changed; `false` if the error carried no
+  ///   parseable credential limit, or the value already matched.
+  @discardableResult
+  public func observeThrottle(_ error: FreesoundError, kind: APIUsageKind) -> Bool {
+    guard let limit = error.throttleLimit else { return false }
+    return state.withLock { state in
+      let updated: FreesoundUsageLimits
+      switch (kind, limit.scope) {
+      case (.standard, .perMinute): updated = state.limits.with(standardPerMinute: limit.count)
+      case (.standard, .perDay): updated = state.limits.with(standardPerDay: limit.count)
+      case (.write, .perMinute): updated = state.limits.with(writePerMinute: limit.count)
+      case (.write, .perDay): updated = state.limits.with(writePerDay: limit.count)
+      // The level tables have only per-minute and per-day limits; a per-hour
+      // throttle (or suspended credential) maps to no field to reconcile.
+      case (_, .perHour), (_, .suspended): return false
+      }
+      guard updated != state.limits else { return false }
+      state.limits = updated
+      return true
+    }
   }
 
   /// Records one request against `kind`, dropping anything older than 24 hours.
@@ -147,9 +217,10 @@ public final class FreesoundUsageTracker: Sendable {
     state.withLock { kind == .write ? $0.write : $0.standard }
   }
 
-  /// Clears all recorded usage.
+  /// Clears all recorded usage. Keeps any limits learned via
+  /// ``observeThrottle(_:kind:)``.
   public func reset() {
-    state.withLock { $0 = State(standard: [], write: []) }
+    state.withLock { $0 = State(standard: [], write: [], limits: $0.limits) }
   }
 
   /// A point-in-time view of both buckets against their limits, for display.
@@ -157,8 +228,8 @@ public final class FreesoundUsageTracker: Sendable {
     state.withLock { state in
       Self.prune(&state, now: now)
       return Snapshot(
-        standard: Self.bucket(.standard, events: state.standard, limits: limits, now: now),
-        write: Self.bucket(.write, events: state.write, limits: limits, now: now))
+        standard: Self.bucket(.standard, events: state.standard, limits: state.limits, now: now),
+        write: Self.bucket(.write, events: state.write, limits: state.limits, now: now))
     }
   }
 

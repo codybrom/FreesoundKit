@@ -2,6 +2,23 @@
 
 All notable changes to FreesoundKit are documented in this file. This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-06-29
+
+Additive only changes: a typed search-filter builder, self-correcting usage limits learned from real 429s, and a set of zero-request helpers that reconstruct IDs and URLs from data already in a `Sound`. No breaking changes.
+
+### Added
+
+- **`SoundFilter`** — a composable, correctly-escaped builder for the search `filter` parameter (raw Solr/Lucene on the wire). Static factories cover equality (`username`, `tag`, `license`, `type`, `md5`), booleans (`isGeotagged`, `isExplicit`, `isRemix`), numeric ranges (`duration`, `filesize`, `numDownloads`, `avgRating`, `samplerate`, …), date ranges (`created`), geospatial bounding boxes (`geotagWithin`), pack targeting (`pack(id:)` via the `pack_grouping` prefix, `pack(named:)`), and analysis descriptors. Compose with `&&` / `all(_:)`; `init(raw:)` is the escape hatch for anything unmodeled (e.g. OR groups). Values are quoted and escaped so spaces and special characters stay one term.
+- **`textSearch(query:filter:parameters:)`** — convenience over `textSearch(query:parameters:)` that sets the `filter` parameter from a `SoundFilter`.
+- **Self-correcting usage limits.** `FreesoundUsageTracker.observeThrottle(_:kind:)` reconciles the tracked `limits` against the real quota the server discloses in a 429 — the only place the API ever reveals a credential's true level. A `FreesoundClient` with a configured `usageTracker` calls this automatically on every throttle, so apps that start at the wrong assumed level converge without intervention. The newest throttle wins (revising up or down); learned limits are per-process and re-learned after relaunch. Only the per-credential request-limit throttle is honored — the IP/concurrency throttle is deliberately ignored so an unrelated rate never revises the quota downward.
+- **`FreesoundError.throttleLimit`** / **`ParsedThrottleLimit`** — parse the count and window (`5000/day`, `60/minute`, …) out of a 429 message. Fails safe: an unrecognized wording, the IP/concurrency throttle, or a suspended credential yields `nil`.
+- **`FreesoundUsageLimits.with(…)`** — returns a copy with selected per-minute/per-day fields replaced.
+- **`Sound` reconstruction helpers** — recover data already implied by a `Sound` without a second request: `uploaderUserID` and `uploaderAvatarURL(size:)` (parsed from preview/image filenames and the `userID / 1000` avatar-folder rule), `packID` (from the pack resource URL), and `reconstructedAnalysisFiles` (Essentia `.yaml`/`.json` URLs derived from `id`). Each documents its best-effort caveats — a derived avatar/analysis URL may 404, and a `200` avatar can be a stale, deliberately-removed image; prefer `User.avatar` and `analysisFiles` when you have them.
+
+### Changed
+
+- **`FreesoundUsageTracker.limits` is now a mutable computed property** (was a stored `let`) so it can be corrected by `observeThrottle(_:kind:)`. Reading is source-compatible, but the value can now change over the tracker's lifetime — treat it as advisory and let real 429s do the enforcing rather than hard-blocking on the assumed ceiling. `reset()` preserves any learned limits.
+
 ## [2.0.0] - 2026-06-26
 
 An audit of the client against the actual Freesound server source surfaced wire-level correctness fixes, read-model fidelity improvements, and new write/auth capabilities. Several changes are source-breaking — see **Migration** below.

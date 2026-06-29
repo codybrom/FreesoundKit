@@ -78,6 +78,62 @@ public enum FreesoundError: Error, LocalizedError {
     if message.contains("/minute") { return .perMinute }
     return nil
   }
+
+  /// For a ``rateLimited(retryAfter:detail:)`` error, the actual configured limit
+  /// parsed from the server's throttle message (`nil` for any other error, a
+  /// suspended-credential message, or an unrecognized format).
+  ///
+  /// Freesound phrases the credential throttle as `"…request limit rate
+  /// (5000/day)"`, so this recovers both the count and the window — the only
+  /// place the API ever discloses your credential's real limit.
+  /// ``FreesoundUsageTracker`` uses it to reconcile its assumed limits with
+  /// reality (``FreesoundUsageTracker/observeThrottle(_:kind:)``).
+  ///
+  /// Returns `nil` unless the message is the per-credential **request-limit**
+  /// throttle. This deliberately excludes Freesound's IP/concurrency throttle
+  /// (`"…concurrent ip limit rate …"`), whose number is unrelated to your
+  /// credential's quota — mistaking it for the quota could revise the tracked
+  /// limit *down* and throttle a user who isn't actually near their limit. It
+  /// fails safe: an unrecognized wording yields `nil` (no reconciliation) rather
+  /// than a wrong number.
+  public var throttleLimit: ParsedThrottleLimit? {
+    guard case .rateLimited(_, let detail) = self else { return nil }
+    let message = detail.lowercased()
+    // Only the per-credential request-limit throttle reflects your quota.
+    guard message.contains("request limit rate") else { return nil }
+    let units: [(needle: String, scope: APIThrottleScope)] = [
+      ("/minute", .perMinute), ("/hour", .perHour), ("/day", .perDay),
+    ]
+    for (needle, scope) in units {
+      guard let unitRange = message.range(of: needle) else { continue }
+      // Walk backwards over the digits immediately preceding the unit.
+      var index = unitRange.lowerBound
+      var digits = ""
+      while index > message.startIndex {
+        let prev = message.index(before: index)
+        guard message[prev].isNumber else { break }
+        digits.insert(message[prev], at: digits.startIndex)
+        index = prev
+      }
+      if let count = Int(digits) { return ParsedThrottleLimit(count: count, scope: scope) }
+    }
+    return nil
+  }
+}
+
+/// The configured rate limit parsed from a Freesound 429 message via
+/// ``FreesoundError/throttleLimit`` — a request `count` per `scope` window.
+public struct ParsedThrottleLimit: Sendable, Equatable, Hashable {
+  /// The maximum requests the window allows (e.g. `5000`).
+  public let count: Int
+  /// The window the limit applies to (``APIThrottleScope/perMinute``,
+  /// ``APIThrottleScope/perHour``, or ``APIThrottleScope/perDay``).
+  public let scope: APIThrottleScope
+
+  public init(count: Int, scope: APIThrottleScope) {
+    self.count = count
+    self.scope = scope
+  }
 }
 
 /// The window a Freesound 429 throttle applies to, parsed from the server's

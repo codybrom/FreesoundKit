@@ -117,8 +117,10 @@ let avatar = try await cache.avatarData(for: user.avatar!)
 ### Searching for sounds
 
 - ``FreesoundClient/textSearch(query:parameters:)``
+- ``FreesoundClient/textSearch(query:filter:parameters:)``
 - ``FreesoundClient/similaritySearch(toSoundID:space:parameters:)``
 - ``FreesoundClient/similaritySearch(toVector:space:parameters:)``
+- ``SoundFilter``
 - ``SoundSearchSort``
 - ``SimilaritySpace``
 
@@ -172,6 +174,7 @@ let avatar = try await cache.avatarData(for: user.avatar!)
 ### Tracking rate-limit usage
 
 - ``FreesoundUsageTracker``
+- ``FreesoundUsageTracker/observeThrottle(_:kind:)``
 - ``FreesoundUsageMonitor``
 - ``FreesoundUsageLimits``
 - ``APIUsageKind``
@@ -221,7 +224,9 @@ let avatar = try await cache.avatarData(for: user.avatar!)
 
 - ``FreesoundClient/withRateLimitRetry(maxAttempts:fallbackDelay:maxDelay:operation:)``
 - ``FreesoundError/throttleScope``
+- ``FreesoundError/throttleLimit``
 - ``APIThrottleScope``
+- ``ParsedThrottleLimit``
 
 ### Response models
 

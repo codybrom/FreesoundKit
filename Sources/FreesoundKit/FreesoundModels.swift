@@ -88,8 +88,15 @@ public struct APIStatusResponse: Codable, Sendable, Equatable, Hashable {
 /// or `WKWebView` — or fetched in-process with
 /// ``FreesoundClient/downloadAsset(at:)``. The token expires, so request a fresh
 /// link rather than persisting it.
+///
+/// - Important: Treat ``downloadLink`` as a **bearer secret**. It needs no
+///   authentication to redeem, so anyone who obtains the URL (logs, analytics,
+///   crash reports, shared state) can download as the authorizing user until it
+///   expires, and the embedded token is base64-decodable to the requester's
+///   numeric user ID and OAuth client ID. Safeguarding this URL is the API
+///   consumer's responsibility: don't log, persist, or share it.
 public struct SoundDownloadLink: Codable, Sendable, Equatable, Hashable {
-  /// The unauthenticated, time-limited download URL.
+  /// The unauthenticated, time-limited download URL. Treat as a secret.
   public let downloadLink: URL
 
   enum CodingKeys: String, CodingKey {
@@ -444,6 +451,88 @@ public struct Sound: Codable, Sendable, Equatable, Hashable, Identifiable {
     self.nFromSamePack = nFromSamePack
     self.distanceToTarget = distanceToTarget
     self.descriptors = descriptors
+  }
+}
+
+extension Sound {
+  /// The uploader's numeric Freesound user ID, recovered from a preview or image
+  /// filename without a second request.
+  ///
+  /// Freesound names these assets `{soundID}_{userID}…` (e.g.
+  /// `859607_15820073-hq.mp3`, `859607_15820073_wave_bw_M.png`), so the second
+  /// underscore-delimited numeric segment is the uploader's ID. Returns `nil`
+  /// when the sound carries neither ``previews`` nor ``images`` to parse.
+  public var uploaderUserID: Int? {
+    let candidates: [URL?] = [
+      previews?.url(for: .hqMP3),
+      previews?.url(for: .lqMP3),
+      previews?.url(for: .hqOGG),
+      previews?.url(for: .lqOGG),
+      images?.url(for: .waveformM),
+      images?.url(for: .waveformL),
+      images?.url(for: .spectralM),
+      images?.url(for: .spectralL),
+    ]
+    for case let url? in candidates {
+      let segments = url.lastPathComponent.split(separator: "_")
+      guard segments.count >= 2 else { continue }
+      if let id = Int(segments[1].prefix(while: \.isNumber)) { return id }
+    }
+    return nil
+  }
+
+  /// Reconstructs the uploader's avatar URL for `size` from ``uploaderUserID``,
+  /// without fetching the ``User``. The avatar folder is `userID / 1000`
+  /// (e.g. ID `15820073` lives under `…/avatars/15820/`).
+  ///
+  /// Returns `nil` when ``uploaderUserID`` can't be determined.
+  ///
+  /// This is a best-effort fallback for when you have a ``Sound`` but not the
+  /// ``User``. It is *not* an authoritative signal that the uploader has an
+  /// avatar:
+  ///
+  /// - A request may **404** when no file exists; treat that as "no avatar."
+  /// - A **200 is not a guarantee** either. Freesound gates ``User/avatar`` on a
+  ///   `has_avatar` flag but never deletes the underlying files, so removing an
+  ///   avatar (or anonymizing an account) leaves the old image served at this
+  ///   path while the API correctly reports `null`. A success here can therefore
+  ///   be a stale, deliberately-removed photo.
+  ///
+  /// When you have a ``User``, prefer ``User/avatar`` — it reflects the user's
+  /// current intent; this derived URL does not.
+  public func uploaderAvatarURL(size: AvatarSize) -> URL? {
+    guard let id = uploaderUserID else { return nil }
+    return URL(
+      string: "https://freesound.org/data/avatars/\(id / 1000)/\(id)_\(size.serverToken).jpg")
+  }
+
+  /// The numeric ID of the pack this sound belongs to, parsed from the ``pack``
+  /// resource URL (`…/packs/{packID}/`). `nil` when the sound is not in a pack.
+  ///
+  /// The API exposes the pack only as a URL and a ``packName``; this recovers the
+  /// integer ID for joining/enumerating without a separate request.
+  public var packID: Int? {
+    guard let pack else { return nil }
+    return pack.pathComponents.reversed().lazy.compactMap { Int($0) }.first
+  }
+
+  /// The Essentia analysis-file URLs (`essentia_stats` `.yaml` and
+  /// `essentia_frames` `.json`), reconstructed deterministically from ``id``.
+  ///
+  /// These mirror the API's ``analysisFiles`` dictionary but need no request and
+  /// are present even when a trimmed `fields=` query omits `analysis_files`. The
+  /// path is `…/data/analysis/{id / 1000}/{id}-fs-essentia-extractor_legacy…`.
+  ///
+  /// - Note: The files exist only for sounds whose analysis completed, so a
+  ///   request may 404. Prefer ``analysisFiles`` when present; use this as a
+  ///   fallback. The keys match ``analysisFiles`` (`essentia_stats`,
+  ///   `essentia_frames`).
+  public var reconstructedAnalysisFiles: [String: URL] {
+    let base = "https://freesound.org/data/analysis/\(id / 1000)/\(id)-fs-essentia-extractor_legacy"
+    var files: [String: URL] = [:]
+    if let stats = URL(string: "\(base).yaml") { files["essentia_stats"] = stats }
+    if let frames = URL(string: "\(base)_frames.json") { files["essentia_frames"] = frames }
+    return files
   }
 }
 
@@ -1156,6 +1245,15 @@ public enum AvatarSize: Sendable, Equatable, Hashable, CaseIterable {
   case medium
   /// Large avatar (`L`).
   case large
+
+  /// The token Freesound uses in avatar filenames (`…_S.jpg`, `…_L.jpg`).
+  var serverToken: String {
+    switch self {
+    case .small: "S"
+    case .medium: "M"
+    case .large: "L"
+    }
+  }
 }
 
 extension AvatarSize: Codable {

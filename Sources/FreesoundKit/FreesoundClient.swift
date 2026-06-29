@@ -160,6 +160,26 @@ public final class FreesoundClient: Sendable {
     return try await send(path: "/search/text/", query: allParameters)
   }
 
+  /// Searches sounds by text query, narrowed by a typed ``SoundFilter``.
+  ///
+  /// Convenience over ``textSearch(query:parameters:)`` that sets the `filter`
+  /// parameter from `filter.expression`. Any `filter` key in `parameters` is
+  /// overridden by `filter`; pass other options (`sort`, `page`, `fields`, …)
+  /// through `parameters` as usual.
+  /// - Parameters:
+  ///   - query: The search terms (use `""` to filter without a text query).
+  ///   - filter: The composed filter (see ``SoundFilter``).
+  ///   - parameters: Additional query parameters; `nil` values are omitted.
+  /// - Returns: A page of matching ``Sound`` results.
+  /// - Throws: ``FreesoundError`` if the request fails.
+  public func textSearch(
+    query: String, filter: SoundFilter, parameters: [String: String?] = [:]
+  ) async throws -> PagedResponse<Sound> {
+    var allParameters = parameters
+    allParameters["filter"] = filter.expression
+    return try await textSearch(query: query, parameters: allParameters)
+  }
+
   /// Searches for sounds acoustically similar to a reference sound, using the
   /// search endpoint's `similar_to` parameter. This is the supported
   /// replacement for the removed content-search endpoint.
@@ -1082,7 +1102,9 @@ public final class FreesoundClient: Sendable {
         throw FreesoundError.invalidResponse
       }
       guard (200...299).contains(httpResponse.statusCode) else {
-        throw mapAPIError(response: httpResponse, data: data)
+        let error = mapAPIError(response: httpResponse, data: data)
+        observeThrottleIfNeeded(error, for: request)
+        throw error
       }
       return data
     } catch let error as FreesoundError {
@@ -1101,6 +1123,17 @@ public final class FreesoundClient: Sendable {
     guard url.host == baseURL.host, !url.path.contains("/oauth2/") else { return }
     let isWrite = (request.httpMethod ?? "GET").uppercased() != "GET"
     usageTracker.record(isWrite ? .write : .standard)
+  }
+
+  /// Lets the ``usageTracker`` reconcile its limits when a throttle (429) reveals
+  /// the credential's real rate. Mirrors ``recordUsage(for:)``'s read/write
+  /// classification and scoping (APIv2 host only, OAuth excluded).
+  private func observeThrottleIfNeeded(_ error: FreesoundError, for request: URLRequest) {
+    guard let usageTracker, case .rateLimited = error, let url = request.url,
+      url.host == baseURL.host, !url.path.contains("/oauth2/")
+    else { return }
+    let isWrite = (request.httpMethod ?? "GET").uppercased() != "GET"
+    usageTracker.observeThrottle(error, kind: isWrite ? .write : .standard)
   }
 
   /// Reads the file on a Dispatch thread so a large blocking read doesn't

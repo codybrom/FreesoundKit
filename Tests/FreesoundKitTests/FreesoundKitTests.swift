@@ -326,6 +326,111 @@ import Testing
   #expect(FreesoundError.apiError(statusCode: 400, detail: "x").throttleScope == nil)
 }
 
+@Test func throttleLimitParsesCountAndWindow() {
+  #expect(
+    FreesoundError.rateLimited(
+      retryAfter: nil, detail: "exceeding a request limit rate (5000/day)"
+    ).throttleLimit == ParsedThrottleLimit(count: 5000, scope: .perDay))
+  #expect(
+    FreesoundError.rateLimited(
+      retryAfter: nil, detail: "exceeding a request limit rate (60/minute)"
+    ).throttleLimit == ParsedThrottleLimit(count: 60, scope: .perMinute))
+  #expect(
+    FreesoundError.rateLimited(
+      retryAfter: nil, detail: "exceeding a request limit rate (100/hour)"
+    ).throttleLimit == ParsedThrottleLimit(count: 100, scope: .perHour))
+  // No number, suspended, or non-429 -> nil.
+  #expect(
+    FreesoundError.rateLimited(retryAfter: nil, detail: "the credential has been suspended")
+      .throttleLimit == nil)
+  #expect(FreesoundError.apiError(statusCode: 400, detail: "(9/day)").throttleLimit == nil)
+
+  // Fail safe: the IP/concurrency throttle carries an unrelated rate and must NOT
+  // be read as the credential's quota (else we'd revise the limit wrongly down).
+  #expect(
+    FreesoundError.rateLimited(
+      retryAfter: nil, detail: "exceeding the concurrent ip limit rate (5/minute)"
+    ).throttleLimit == nil)
+}
+
+@Test func usageTrackerTracksLatestThrottleAndIgnoresIPThrottle() {
+  let tracker = FreesoundUsageTracker(limits: .level1)
+
+  // A genuine credential 429 reconciles the day limit.
+  #expect(
+    tracker.observeThrottle(
+      .rateLimited(retryAfter: nil, detail: "request limit rate (5000/day)"), kind: .standard))
+  #expect(tracker.limits.standardPerDay == 5000)
+
+  // The level can change later — a newer credential 429 supersedes it, upward...
+  #expect(
+    tracker.observeThrottle(
+      .rateLimited(retryAfter: nil, detail: "request limit rate (15000/day)"), kind: .standard))
+  #expect(tracker.limits.standardPerDay == 15000)
+  // ...and downward (no single observation is permanent).
+  #expect(
+    tracker.observeThrottle(
+      .rateLimited(retryAfter: nil, detail: "request limit rate (2000/day)"), kind: .standard))
+  #expect(tracker.limits.standardPerDay == 2000)
+
+  // An IP/concurrency throttle must not touch the credential limits.
+  #expect(
+    tracker.observeThrottle(
+      .rateLimited(retryAfter: nil, detail: "concurrent ip limit rate (5/minute)"), kind: .standard)
+      == false)
+  #expect(tracker.limits.standardPerDay == 2000)
+}
+
+@Test func usageTrackerReconcilesLimitsFromObservedThrottle() {
+  let tracker = FreesoundUsageTracker(limits: .level1)  // assumes 2000/day standard
+  #expect(tracker.limits.standardPerDay == 2000)
+
+  // A standard per-day 429 reveals the real level (5000/day) -> reconcile.
+  let perDay = FreesoundError.rateLimited(
+    retryAfter: nil, detail: "exceeding a request limit rate (5000/day)")
+  #expect(tracker.observeThrottle(perDay, kind: .standard) == true)
+  #expect(tracker.limits.standardPerDay == 5000)
+  #expect(tracker.limits.standardPerMinute == 60)  // untouched field preserved
+  // Re-observing the same value is a no-op.
+  #expect(tracker.observeThrottle(perDay, kind: .standard) == false)
+
+  // A write per-minute 429 updates only the write/minute field.
+  let writeMinute = FreesoundError.rateLimited(
+    retryAfter: nil, detail: "exceeding a request limit rate (60/minute)")
+  #expect(tracker.observeThrottle(writeMinute, kind: .write) == true)
+  #expect(tracker.limits.writePerMinute == 60)
+
+  // Per-hour and suspended map to no reconcilable field.
+  let suspended = FreesoundError.rateLimited(retryAfter: nil, detail: "credential suspended")
+  #expect(tracker.observeThrottle(suspended, kind: .standard) == false)
+  // reset() keeps learned limits.
+  tracker.reset()
+  #expect(tracker.limits.standardPerDay == 5000)
+}
+
+@Test func clientAutoReconcilesUsageLimitsOnThrottle() async throws {
+  let tracker = FreesoundUsageTracker(limits: .level1)
+  let mockSession = MockHTTPClient { _ in
+    let body =
+      #"{"detail":"Request was throttled because of exceeding a request limit rate (15000/day)"}"#
+    return (Data(body.utf8), makeResponse(status: 429))
+  }
+  let client = FreesoundClient(
+    authentication: .apiKey("k"), session: mockSession, usageTracker: tracker)
+
+  do {
+    _ = try await client.textSearch(query: "x")
+    Issue.record("Expected rateLimited")
+  } catch let error as FreesoundError {
+    guard case .rateLimited = error else {
+      Issue.record("Expected rateLimited, got \(error)")
+      return
+    }
+  }
+  // The GET search throttle reconciles the standard/day limit automatically.
+  #expect(tracker.limits.standardPerDay == 15000)
+}
+
 @Test func rateLimitRetryRetriesPerMinuteThrottle() async throws {
   // A per-minute throttle clears within the minute, so it must be retried (and
   // succeed on a later attempt), unlike the per-day case below.
@@ -966,6 +1071,137 @@ import Testing
       return
     }
   }
+}
+
+@Test func uploaderUserIDAndAvatarURLDeriveFromAssetFilenames() throws {
+  // Freesound names previews/images `{soundID}_{userID}…`, and the avatar lives
+  // under `…/avatars/{userID / 1000}/{userID}_{S|M|L}.jpg`. Both fixtures are
+  // real API responses; the avatar folder rule must hold across magnitudes.
+
+  // blankie.rest: userID 15820073 → folder 15820 (from a preview filename).
+  let blankie = try JSONDecoder().decode(
+    Sound.self,
+    from: Data(
+      #"{"id":859607,"previews":{"preview-hq-mp3":"https://cdn.freesound.org/previews/859/859607_15820073-hq.mp3"}}"#
+        .utf8))
+  #expect(blankie.uploaderUserID == 15_820_073)
+  #expect(
+    blankie.uploaderAvatarURL(size: .small)?.absoluteString
+      == "https://freesound.org/data/avatars/15820/15820073_S.jpg")
+  #expect(
+    blankie.uploaderAvatarURL(size: .large)?.absoluteString
+      == "https://freesound.org/data/avatars/15820/15820073_L.jpg")
+
+  // reinsamba: userID 18799 → folder 18 (derived here from an image filename, to
+  // confirm the parse works off `images` too, not just `previews`).
+  let reinsamba = try JSONDecoder().decode(
+    Sound.self,
+    from: Data(
+      #"{"id":12345,"images":{"waveform_m":"https://cdn.freesound.org/displays/123/12345_18799_wave_bw_M.png"}}"#
+        .utf8))
+  #expect(reinsamba.uploaderUserID == 18799)
+  #expect(
+    reinsamba.uploaderAvatarURL(size: .medium)?.absoluteString
+      == "https://freesound.org/data/avatars/18/18799_M.jpg")
+
+  // No previews/images to parse → no ID, no URL.
+  let bare = try JSONDecoder().decode(Sound.self, from: Data(#"{"id":7}"#.utf8))
+  #expect(bare.uploaderUserID == nil)
+  #expect(bare.uploaderAvatarURL(size: .small) == nil)
+}
+
+@Test func packIDParsesFromPackURL() throws {
+  let inPack = try JSONDecoder().decode(
+    Sound.self,
+    from: Data(#"{"id":859607,"pack":"https://freesound.org/apiv2/packs/34032/"}"#.utf8))
+  #expect(inPack.packID == 34032)
+
+  let noPack = try JSONDecoder().decode(Sound.self, from: Data(#"{"id":7}"#.utf8))
+  #expect(noPack.packID == nil)
+}
+
+@Test func reconstructedAnalysisFilesMatchAPIPaths() throws {
+  // Reconstruction from the sound id alone must match what the API returns in
+  // analysis_files (verified live for sound 859607, shard 859607 / 1000 = 859).
+  let sound = try JSONDecoder().decode(Sound.self, from: Data(#"{"id":859607}"#.utf8))
+  let files = sound.reconstructedAnalysisFiles
+  #expect(
+    files["essentia_stats"]?.absoluteString
+      == "https://freesound.org/data/analysis/859/859607-fs-essentia-extractor_legacy.yaml")
+  #expect(
+    files["essentia_frames"]?.absoluteString
+      == "https://freesound.org/data/analysis/859/859607-fs-essentia-extractor_legacy_frames.json")
+}
+
+@Test func soundFilterBuildsAndEscapesSolrClauses() throws {
+  // Equality clauses quote string values; numeric/bool/id clauses don't.
+  #expect(SoundFilter.md5("abc123").expression == #"md5:"abc123""#)
+  #expect(SoundFilter.username("reinsamba").expression == #"username:"reinsamba""#)
+  #expect(SoundFilter.type("wav").expression == #"type:"wav""#)
+  #expect(SoundFilter.isGeotagged().expression == "is_geotagged:true")
+  #expect(SoundFilter.isExplicit(false).expression == "is_explicit:false")
+
+  // Pack: id targets the pack_grouping "{id}_*" prefix (verified live → 44 hits);
+  // name targets the (non-unique) pack field.
+  #expect(SoundFilter.pack(id: 1124).expression == "pack_grouping:1124_*")
+  #expect(SoundFilter.pack(named: "birdsong").expression == #"pack:"birdsong""#)
+
+  // Quoting escapes embedded quotes and backslashes so values stay one term.
+  #expect(SoundFilter.tag(#"a"b\c"#).expression == #"tag:"a\"b\\c""#)
+
+  // Ranges: both bounds, open-min, open-max, and neither (→ empty).
+  #expect(SoundFilter.duration(min: 5, max: 30).expression == "duration:[5.0 TO 30.0]")
+  #expect(SoundFilter.numDownloads(min: 100).expression == "num_downloads:[100 TO *]")
+  #expect(SoundFilter.filesize(max: 1_000_000).expression == "filesize:[* TO 1000000]")
+  #expect(SoundFilter.bitdepth().expression == "")
+
+  // Geotag bounding box uses the "lat,lon" range form the geo field expects.
+  #expect(
+    SoundFilter.geotagWithin(
+      minLatitude: 40, maxLatitude: 41.5, minLongitude: -74.5, maxLongitude: -73
+    ).expression == #"geotag:["40.0,-74.5" TO "41.5,-73.0"]"#)
+
+  // Descriptors pass through verbatim (caller supplies the dynamic suffix).
+  #expect(
+    SoundFilter.descriptor("ac_tonality_s", equals: "major").expression
+      == #"ac_tonality_s:"major""#)
+  #expect(
+    SoundFilter.descriptor("ac_loudness_d", min: -30, max: -10).expression
+      == "ac_loudness_d:[-30.0 TO -10.0]")
+}
+
+@Test func soundFilterComposesWithAnd() throws {
+  let f = SoundFilter.username("reinsamba") && .duration(min: 5, max: 30) && .isGeotagged()
+  #expect(f.expression == #"username:"reinsamba" duration:[5.0 TO 30.0] is_geotagged:true"#)
+
+  // all([]) joins and drops empty (no-op) clauses rather than leaving blanks.
+  let combined = SoundFilter.all([.type("flac"), .bitrate(), .isExplicit(false)])
+  #expect(combined.expression == #"type:"flac" is_explicit:false"#)
+  #expect(SoundFilter.all([]).expression == "")
+}
+
+@Test func textSearchWithFilterSendsFilterQueryParameter() async throws {
+  let filter: SoundFilter = .username("reinsamba") && .duration(min: 5, max: 30)
+  let mockSession = MockHTTPClient { request in
+    let items = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems
+    // The decoded filter value must match the builder's expression verbatim.
+    #expect(items?.first { $0.name == "filter" }?.value == filter.expression)
+    #expect(items?.first { $0.name == "query" }?.value == "rain")
+    return (Data(#"{"count":0,"next":null,"previous":null,"results":[]}"#.utf8), makeResponse())
+  }
+  let client = FreesoundClient(authentication: .apiKey("k"), session: mockSession)
+  _ = try await client.textSearch(query: "rain", filter: filter)
+}
+
+@Test func soundFilterFormatsCreatedDateAsUTCSolrTimestamp() throws {
+  var cal = Calendar(identifier: .gregorian)
+  cal.timeZone = TimeZone(identifier: "UTC")!
+  let date = cal.date(
+    from: DateComponents(
+      year: 2026, month: 6, day: 29, hour: 8, minute: 5, second: 3))!
+  #expect(
+    SoundFilter.created(from: date).expression
+      == "created:[2026-06-29T08:05:03Z TO *]")
 }
 
 @Test func parsesFreesoundTimestamps() async throws {
